@@ -468,7 +468,7 @@ function UplinkSelect(p: { nodeId: NodeId; devices: Device[]; uplinks: Uplinks; 
   const below = descendants(uplinks, all, nodeId);
   const options = devices.filter((d) => isL2(d) && d.id !== nodeId && !below.includes(d.id));
   const cur = uplinks[nodeId] ?? 'r2';
-  const value = cur === 'r2' || options.some((o) => o.id === cur) ? cur : 'r2';
+  const value = cur === '' || cur === 'r2' || options.some((o) => o.id === cur) ? cur : 'r2';
   return (
     <div>
       <label htmlFor={`${nodeId}-uplink`} className="block text-sm font-semibold text-ink mb-1">Připojeno k</label>
@@ -479,6 +479,7 @@ function UplinkSelect(p: { nodeId: NodeId; devices: Device[]; uplinks: Uplinks; 
         className="w-full px-3 py-2 text-base border border-line-strong bg-surface text-ink rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
       >
         <option value="r2">Router 2 (LAN)</option>
+        <option value="">— nezapojeno —</option>
         {options.map((d) => <option key={d.id} value={d.id}>{d.name} ({KIND_INFO[d.kind].label}{d.kind === 'ap' ? ' – Wi-Fi' : ''})</option>)}
       </select>
     </div>

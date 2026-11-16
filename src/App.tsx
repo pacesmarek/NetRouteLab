@@ -6,10 +6,11 @@ import { CARD_H, CARD_W, type Status } from './components/DeviceCard';
 import DevicePalette from './components/DevicePalette';
 import Diagnostics, { type Tone } from './components/Diagnostics';
 import Header, { FONT_PX, SPEED_MULT, type FontKey, type SpeedKey, type ThemeKey } from './components/Header';
+import TabBar, { type TabView } from './components/TabBar';
 import TaskPicker from './components/TaskPicker';
 import Topology, { type LayoutApi, type PacketState } from './components/Topology';
 import Wizard from './components/Wizard';
-import { useHistory, useLocalStorage, useViewportRem } from './hooks';
+import { useLocalStorage, useTabs, useViewportRem } from './hooks';
 import {
   assignmentOf, decodeDoc, docForScenario, encodeDoc, fieldsOfDevice, nextDeviceNumber, playgroundDoc, sanitizeDoc, shareUrl, type Doc,
 } from './lib/doc';
@@ -18,7 +19,7 @@ import {
 } from './lib/free';
 import { resolveDhcp } from './lib/dhcp';
 import { fmtMask, ipMask } from './lib/format';
-import { inboundPath, linksOfPath, pingPath, traceHops } from './lib/graph';
+import { chainToRouter, inboundPath, linksOfPath, pingPath, traceHops } from './lib/graph';
 import {
   DEFAULT_ISP, KIND_INFO, SCENARIOS, emptyConfig, hasIp, isL2, isRouter, nodeOfField,
   type ApMode, type Config, type Device, type DeviceKind, type FieldId, type IspConfig, type LinkId, type LogItem, type NodeId, type Pos, type RouterId, type Rules, type Scenario,
@@ -34,7 +35,9 @@ const INFO_LOG: LogItem[] = [{
   text: 'Klikněte na zařízení a vyplňte jeho IP konfiguraci. Potom klikněte na „Otestovat připojení (Ping)“.',
 }];
 
-const DOC_KEY = 'netroute.doc.v1';
+const DOC_KEY = 'netroute.doc.v1'; // starší úložiště jednoho plátna (načte se do první záložky)
+const TABS_KEY = 'netroute.tabs.v1';
+const MAX_TABS = 10;
 
 const defaultFixedPos = (): Record<NodeId, Pos> => ({
   isp: { x: 1.5, y: 2 },
@@ -65,12 +68,42 @@ function loadDoc(): Doc {
   return playgroundDoc();
 }
 
+/** Záložky z úložiště; není-li žádné, vznikne jedna z dřívějšího úložiště (nebo prázdné volné plátno). */
+function loadTabs(): { tabs: { id: string; name: string; custom: boolean; doc: Doc }[]; active: string } {
+  try {
+    const raw = localStorage.getItem(TABS_KEY);
+    if (raw) {
+      const p = JSON.parse(raw) as { active?: string; tabs?: { id?: unknown; name?: unknown; custom?: unknown; doc?: unknown }[] };
+      const seen = new Set<string>();
+      const tabs = (Array.isArray(p.tabs) ? p.tabs : []).slice(0, MAX_TABS).flatMap((t, i) => {
+        const doc = sanitizeDoc(t.doc);
+        const id = typeof t.id === 'string' && /^[\w-]{1,24}$/.test(t.id) ? t.id : `t${i}`;
+        if (!doc || seen.has(id)) return [];
+        seen.add(id);
+        const name = typeof t.name === 'string' ? t.name.slice(0, 28) : '';
+        return [{ id, name, custom: t.custom === true && !!name, doc }];
+      });
+      if (tabs.length) return { tabs, active: typeof p.active === 'string' ? p.active : tabs[0].id };
+    }
+  } catch { /* poškozená data – začneme znovu */ }
+  return { tabs: [{ id: 't0', name: '', custom: false, doc: loadDoc() }], active: 't0' };
+}
+
+/** Prázdné volné plátno bez jakékoli práce (nahradí se místo otevření nové záložky). */
+const isPristine = (d: Doc): boolean =>
+  d.mode === 'playground' && !d.devices.length && Object.values(d.cfg).every((v) => !v) && JSON.stringify(d.isp) === JSON.stringify(DEFAULT_ISP);
+
+const autoName = (d: Doc): string =>
+  d.mode === 'playground' ? 'Volné plátno' : d.mode === 'scenario' && d.scenario ? d.scenario.title.split(':')[0] : d.mode === 'sample' ? 'Vzorové řešení' : 'Základní zadání';
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const omit = <T extends object>(o: T, keep: (k: string) => boolean): T =>
   Object.fromEntries(Object.entries(o).filter(([k]) => keep(k))) as T;
 
 export default function App() {
-  const { doc, set, undo, redo, reset, canUndo, canRedo } = useHistory<Doc>(loadDoc);
+  const { doc, set, undo, redo, reset, canUndo, canRedo, tabs, active, addTab, selectTab, renameTab, closeTab } = useTabs<Doc>(loadTabs);
+  const docRef = useRef(doc);
+  docRef.current = doc;
   const { cfg, devices, rules, uplinks, positions, isp, scenario, mode } = doc;
 
   const [cidr, setCidr] = useLocalStorage('netroute.cidr', false);
@@ -144,13 +177,16 @@ export default function App() {
     return () => mq.removeEventListener('change', apply);
   }, [theme]);
 
-  // --- ukládání stavu (po krátké prodlevě) ---
+  // --- ukládání stavu všech záložek (po krátké prodlevě) ---
   useEffect(() => {
     const t = window.setTimeout(() => {
-      try { localStorage.setItem(DOC_KEY, JSON.stringify(doc)); } catch { /* úložiště nemusí být dostupné */ }
+      try {
+        localStorage.setItem(TABS_KEY, JSON.stringify({ active, tabs }));
+        localStorage.removeItem(DOC_KEY);
+      } catch { /* úložiště nemusí být dostupné */ }
     }, 400);
     return () => window.clearTimeout(t);
-  }, [doc]);
+  }, [tabs, active]);
 
   // --- načtení z odkazu (#s=…) ---
   useEffect(() => {
@@ -158,10 +194,11 @@ export default function App() {
     if (!m) return;
     void decodeDoc(m[1]).then((d) => {
       history.replaceState(null, '', location.pathname + location.search);
-      if (d) { reset(d); say('Zadání načteno z odkazu'); }
-      else say('Odkaz se nepodařilo načíst');
+      if (!d) { say('Odkaz se nepodařilo načíst'); return; }
+      if (isPristine(docRef.current)) reset(d); else addTab(d); // rozdělanou práci nepřepíšeme
+      say('Zadání načteno z odkazu');
     });
-  }, [reset, say]);
+  }, [reset, addTab, say]);
 
   // --- rozmístění zařízení (drag & drop) ---
   const defaults: Record<NodeId, Pos> = { ...defaultFixedPos() };
@@ -301,6 +338,21 @@ export default function App() {
     ...devices.filter((d) => d.id !== selfId && hasIp(d)).map((d) => ({ name: d.name, field: `${d.id}-ip` })),
   ];
 
+  /** Úlohy: zařízení s odpojeným kabelem (někde na cestě k Routeru 2) – paket nemá kudy jít. */
+  const unpluggedPath = (id: NodeId): { res: SimResult; chain: NodeId[] } | null => {
+    const chain = chainToRouter(uplinks, id);
+    const last = chain[chain.length - 1];
+    if (uplinks[last] !== '') return null;
+    const name = last === 'pc' ? 'Klientské PC' : devices.find((d) => d.id === last)?.name ?? last;
+    return {
+      chain,
+      res: {
+        ok: false, stopNode: last, errorFields: [],
+        logs: [{ type: 'error', title: 'Zařízení není zapojeno do sítě', text: `${name} nemá kabel k nadřazenému zařízení – paket nemá kudy jít. Připojte ho v nastavení v poli „Připojeno k“.` }],
+      },
+    };
+  };
+
   /** Ping do internetu z PC (základního nebo přidaného). */
   const runPing = (clientId?: NodeId) => {
     if (free) {
@@ -314,6 +366,11 @@ export default function App() {
     clientId ??= 'pc';
     const dev = devices.find((d) => d.id === clientId);
     const client = dev ? { id: dev.id, name: dev.name } : PC_CLIENT;
+    const cut = unpluggedPath(clientId);
+    if (cut) {
+      animate(cut.chain, linksOfPath(uplinks, cut.chain) as LinkId[], cut.res, { run: 'ICMP Ping...', ok: '', err: '✕ Paket zahozen', badgeOk: '' });
+      return;
+    }
     const res = dhcpFailure(clientId) ?? simulate(effCfg, isp, scenario, cidr, fmt, client, othersFor(clientId));
     const path = pingPath(uplinks, clientId);
     animate(path, linksOfPath(uplinks, path) as LinkId[], res,
@@ -331,6 +388,12 @@ export default function App() {
         { run: `${KIND_INFO[dev.kind].service ?? 'TCP'} z internetu...`, ok: `✓ ${dev.name} odpovídá`, err: '✕ Spojení zahozeno', badgeOk: `${dev.name} je dostupné z internetu!` });
       return;
     }
+    const cut = unpluggedPath(deviceId);
+    if (cut) {
+      const rev = [...cut.chain].reverse();
+      animate(rev, linksOfPath(uplinks, rev) as LinkId[], cut.res, { run: `${KIND_INFO[dev.kind].service ?? 'TCP'} z internetu...`, ok: '', err: '✕ Spojení zahozeno', badgeOk: '' });
+      return;
+    }
     const res = dhcpFailure(deviceId) ?? simulateInbound(effCfg, isp, cidr, fmt, dev, rules, othersFor(deviceId));
     const proto = KIND_INFO[dev.kind].service ?? 'TCP';
     const path = inboundPath(uplinks, deviceId);
@@ -344,13 +407,14 @@ export default function App() {
     resetVisual();
     const src: NodeId | null = free ? testSource : 'pc';
     if (!src) { say('Nejdřív přidejte PC nebo jiné koncové zařízení'); return; }
-    const res = dhcpFailure(src) ?? (free ? simulateFree(effCfg, isp, topo, src, cidr, fmt) : simulate(effCfg, isp, scenario, cidr, fmt, PC_CLIENT, othersFor('pc')));
+    const cut = free ? null : unpluggedPath(src);
+    const res = cut?.res ?? dhcpFailure(src) ?? (free ? simulateFree(effCfg, isp, topo, src, cidr, fmt) : simulate(effCfg, isp, scenario, cidr, fmt, PC_CLIENT, othersFor('pc')));
     const reached = res.logs.filter((l) => l.type === 'success').length; // počet odpovídajících hopů
     const t = (id: string) => (effCfg[id] ?? '').trim() || '?';
     const hops = free
       ? traceHopsFree(effCfg, isp, topo, src)
       : traceHops({ r2Lan: t('r2-lan-ip'), r1Lan: t('r1-lan-ip'), ispGw: isp.gwIp, target: isp.dnsIp });
-    const path = free ? pathAndLinks(topo, src).path : pingPath(uplinks, 'pc');
+    const path = free ? pathAndLinks(topo, src).path : cut ? cut.chain : pingPath(uplinks, 'pc');
     const links = (free ? pathAndLinks(topo, src).links : linksOfPath(uplinks, path)) as LinkId[];
 
     setLogs([{ type: 'info', title: `traceroute to ${isp.dnsIp}, 30 hops max`, text: `Ze zařízení ${free ? topoName(topo, src) : 'Klientské PC'}. Každý hop je zařízení, na kterém vyprší TTL a které odpoví.` }]);
@@ -492,6 +556,8 @@ export default function App() {
       return;
     }
     set((d) => ({ ...d, uplinks: parent === 'r2' ? omit(d.uplinks, (k) => k !== child) : { ...d.uplinks, [child]: parent } }));
+    const nm = (id: NodeId) => (id === 'pc' ? 'Klientské PC' : id === 'r2' ? 'Router 2' : devices.find((d) => d.id === id)?.name ?? id);
+    say(parent === '' ? `${nm(child)} odpojeno` : `${nm(child)} zapojeno k ${nm(parent)}`);
   };
 
   const setApMode = (id: NodeId, m: ApMode) => {
@@ -550,26 +616,70 @@ export default function App() {
     setBadge({ text, tone: 'neutral' });
   };
 
-  /** Spustí úlohu (null = základní zadání). Nahrazuje aktuální práci, lze vrátit krokem Zpět. */
+  /** Otevře dokument v nové záložce (prázdné volné plátno se jen nahradí). Vrací false, když je záložek příliš mnoho. */
+  const openDoc = (d: Doc): boolean => {
+    if (isPristine(doc)) { set(() => d); return true; }
+    if (tabs.length >= MAX_TABS) { say(`Nejvýše ${MAX_TABS} záložek – nejdřív některou zavřete`); return false; }
+    addTab(d);
+    return true;
+  };
+
+  /** Spustí úlohu (null = základní zadání) v nové záložce. */
   const startTask = (sc: Scenario | null) => {
+    if (!openDoc(docForScenario(sc))) return;
     resetRun();
     setOpenNode(null);
-    set(() => docForScenario(sc));
+    setTestSrc(null);
     say(sc ? `Spuštěna úloha: ${sc.title.split(':')[0]}` : 'Spuštěno základní zadání');
   };
 
-  /** Volné plátno: jen ISP a hraniční router. Lze vrátit krokem Zpět. */
+  /** Volné plátno: jen ISP a hraniční router, v nové záložce. */
   const startFree = () => {
+    if (!openDoc(playgroundDoc())) return;
     resetRun('Připraveno k zadání');
     setOpenNode(null);
-    set(() => playgroundDoc());
+    setTestSrc(null);
     say('Volné plátno: ISP a hraniční router');
   };
-  /** Obnovení plátna do původního stavu (volné plátno, nebo znovu spuštěná úloha). */
+  /** Obnovení plátna do původního stavu v téže záložce (volné plátno, nebo znovu zadání úlohy). Lze vrátit krokem Zpět. */
   const resetCanvas = () => {
-    if (free) startFree();
-    else startTask(mode === 'scenario' ? scenario : null);
+    resetRun('Připraveno k zadání');
+    setOpenNode(null);
+    set(() => (free ? playgroundDoc() : docForScenario(mode === 'scenario' ? scenario : null)));
+    say('Plátno obnoveno do původního stavu');
   };
+
+  // --- záložky ---
+  const switchTab = (id: string) => {
+    if (id === active) return;
+    selectTab(id);
+    resetRun();
+    setOpenNode(null);
+    setTestSrc(null);
+  };
+  /** Tlačítko „Nové plátno“: vždy nová záložka s prázdným volným plátnem. */
+  const addFreeTab = () => {
+    if (tabs.length >= MAX_TABS) { say(`Nejvýše ${MAX_TABS} záložek – nejdřív některou zavřete`); return; }
+    addTab(playgroundDoc());
+    resetRun('Připraveno k zadání');
+    setOpenNode(null);
+    setTestSrc(null);
+  };
+  const closeTabById = (id: string) => {
+    closeTab(id, playgroundDoc);
+    if (id === active) { resetRun(); setOpenNode(null); setTestSrc(null); }
+  };
+  const tabViews: TabView[] = (() => {
+    const labels = tabs.map((t) => (t.custom && t.name ? t.name : autoName(t.doc)));
+    const total: Record<string, number> = {};
+    labels.forEach((l, i) => { if (!tabs[i].custom) total[l] = (total[l] ?? 0) + 1; });
+    const seen: Record<string, number> = {};
+    return tabs.map((t, i) => {
+      let name = labels[i];
+      if (!t.custom && total[name] > 1) { seen[name] = (seen[name] ?? 0) + 1; name = `${name} ${seen[name]}`; }
+      return { id: t.id, name, active: t.id === active, pristine: isPristine(t.doc), free: t.doc.mode === 'playground' };
+    });
+  })();
 
   const randomScenario = () => {
     const pool = SCENARIOS.filter((s) => s.title !== scenario?.title);
@@ -657,10 +767,11 @@ export default function App() {
       const raw = JSON.parse(await file.text()) as { doc?: unknown };
       const d = sanitizeDoc(raw && typeof raw === 'object' && 'doc' in raw ? raw.doc : raw);
       if (!d) throw new Error('bad');
+      if (!openDoc(d)) return;
       resetRun();
       setOpenNode(null);
-      set(() => d);
-      say('Soubor načten (lze vrátit krokem Zpět)');
+      setTestSrc(null);
+      say('Soubor načten do nové záložky');
     } catch {
       say('Soubor se nepodařilo načíst');
     }
@@ -782,6 +893,8 @@ export default function App() {
       />
 
       <main className="flex-grow max-w-[1800px] w-full mx-auto px-3 sm:px-6 py-5 space-y-5">
+        <TabBar tabs={tabViews} max={MAX_TABS} onSelect={switchTab} onAdd={addFreeTab} onClose={closeTabById} onRename={renameTab} />
+
         <section className="bg-gradient-to-r from-indigo-50 dark:from-indigo-950/40 via-blue-50 dark:via-blue-950/40 to-sky-50 dark:to-sky-950/40 border border-blue-200 dark:border-blue-800 rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
           <div className="space-y-1.5">
             <div className="flex flex-wrap items-center gap-2">
@@ -852,7 +965,7 @@ export default function App() {
             />
           </section>
           {wide ? (
-            <aside className="space-y-5 sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto pr-1 -mr-1">
+            <aside className="space-y-5 sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto p-1 -m-1">
               {runButtons(true)}
               {diag}
               <DevicePalette free={free} onAdd={(k) => addDevice(k)} onDrop={(k, x, y) => addDevice(k, { clientX: x, clientY: y })} layout="column" />

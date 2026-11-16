@@ -5,6 +5,7 @@ import { useElementWidth, useLocalStorage, useMeasuredHeight } from '../hooks';
 import type { DhcpResult } from '../lib/dhcp';
 import type { ApMode, Config, Device, FieldId, IspConfig, LinkId, Mode, NodeId, Pos, RouterId, Rules, Uplinks } from '../lib/model';
 import { FIXED_NODES, KIND_INFO, apModeOf, isL2, isRouter, linkId, nodeOfField } from '../lib/model';
+import { chainToRouter } from '../lib/graph';
 import { cableId, canHostChildren, canParent, freeNodes, isWifiLink, kindOf, parentOf as freeParent, topRouterOf } from '../lib/free';
 import { analyzeInterface } from '../lib/net';
 import { ApArt, CameraArt, CloudArt, PcArt, RouterArt, ServerArt, SwitchArt } from './Art';
@@ -128,6 +129,7 @@ export default function Topology(p: Props) {
   // --- kabely podle připojení (uplinks) ---
   const parentOf = (child: NodeId): NodeId => {
     const up = p.uplinks[child] ?? 'r2';
+    if (up === '') return ''; // odpojeno
     return up === 'r2' || deviceOf(up) ? up : 'r2';
   };
   const links: LinkDef[] = free
@@ -141,10 +143,11 @@ export default function Topology(p: Props) {
     : [
         { id: 'link-r1-isp', from: 'isp', to: 'r1', label: 'WAN' },
         { id: 'link-r2-r1', from: 'r1', to: 'r2', label: 'ETH' },
-        ...['pc', ...p.devices.map((d) => d.id)].map((child): LinkDef => {
+        ...['pc', ...p.devices.map((d) => d.id)].flatMap((child): LinkDef[] => {
           const parent = parentOf(child);
+          if (!parent) return [];
           const wifi = deviceOf(parent)?.kind === 'ap';
-          return { id: linkId(child, parent), from: parent, to: child, label: wifi ? 'Wi-Fi' : 'LAN', wifi };
+          return [{ id: linkId(child, parent), from: parent, to: child, label: wifi ? 'Wi-Fi' : 'LAN', wifi }];
         }),
       ];
 
@@ -274,26 +277,9 @@ export default function Topology(p: Props) {
   const anchors = (a: NodeId, b: NodeId) => {
     const A = { l: px(E[a].x), t: px(E[a].y), w: px(CARD_W), h: px(CARD_H) };
     const B = { l: px(E[b].x), t: px(E[b].y), w: px(CARD_W), h: px(CARD_H) };
-    const gap = px(0.2);
-    type Anchor = { x: number; y: number; dx: number; dy: number };
-    let s: Anchor, t: Anchor;
-    if (free) {
-      // jako v n8n: kabel vždy z dolní tečky rodiče do horní tečky dítěte
-      s = { x: A.l + A.w / 2, y: A.t + A.h, dx: 0, dy: 1 };
-      t = { x: B.l + B.w / 2, y: B.t, dx: 0, dy: -1 };
-    } else if (B.t >= A.t + A.h + gap) {
-      s = { x: A.l + A.w / 2, y: A.t + A.h, dx: 0, dy: 1 };
-      t = { x: B.l + B.w / 2, y: B.t, dx: 0, dy: -1 };
-    } else if (B.t + B.h <= A.t - gap) {
-      s = { x: A.l + A.w / 2, y: A.t, dx: 0, dy: -1 };
-      t = { x: B.l + B.w / 2, y: B.t + B.h, dx: 0, dy: 1 };
-    } else if (B.l >= A.l) {
-      s = { x: A.l + A.w, y: A.t + A.h / 2, dx: 1, dy: 0 };
-      t = { x: B.l, y: B.t + B.h / 2, dx: -1, dy: 0 };
-    } else {
-      s = { x: A.l, y: A.t + A.h / 2, dx: -1, dy: 0 };
-      t = { x: B.l + B.w, y: B.t + B.h / 2, dx: 1, dy: 0 };
-    }
+    // jako v n8n: kabel vždy z dolní tečky rodiče do horní tečky dítěte
+    const s = { x: A.l + A.w / 2, y: A.t + A.h, dx: 0, dy: 1 };
+    const t = { x: B.l + B.w / 2, y: B.t, dx: 0, dy: -1 };
     const dist = Math.hypot(t.x - s.x, t.y - s.y);
     const k = Math.max(px(2), dist * 0.4);
     const c1 = { x: s.x + s.dx * k, y: s.y + s.dy * k };
@@ -313,7 +299,7 @@ export default function Topology(p: Props) {
   };
   const c = p.cfg;
   const summary = (id: NodeId): ReactNode => {
-    const loose = free && id !== 'isp' && id !== 'r1' && !freeParent(topo, id);
+    const loose = free ? id !== 'isp' && id !== 'r1' && !freeParent(topo, id) : p.uplinks[id] === '';
     const body = summaryBody(id);
     return loose ? <><span className="block font-semibold text-amber-700 dark:text-amber-300">Nezapojeno – táhněte kabel</span>{body}</> : body;
   };
@@ -408,12 +394,23 @@ export default function Topology(p: Props) {
       .map((el) => el.closest('[data-node-root]')?.getAttribute('data-node-root'))
       .find((x): x is string => !!x) ?? null;
   /** Je `target` přípustný cíl pro tažení kabelu z tečky `port` uzlu `id`? */
-  const validTarget = (id: NodeId, port: 'in' | 'out', target: NodeId) => (port === 'in' ? canParent(topo, id, target) : canParent(topo, target, id));
+  /** Může se `child` zapojit pod `parent`? Volné plátno: libovolně (bez smyček). Úlohy: pod Router 2, switch nebo AP. */
+  const canPlug = (child: NodeId, parent: NodeId): boolean => {
+    if (free) return canParent(topo, child, parent);
+    if (child === parent || !(child === 'pc' || deviceOf(child))) return false;
+    const pd = deviceOf(parent);
+    if (!(parent === 'r2' || (pd && isL2(pd)))) return false;
+    return !chainToRouter(p.uplinks, parent).includes(child); // žádné smyčky
+  };
+  const canHost = (id: NodeId): boolean => (free ? canHostChildren(topo, id) : id === 'r2' || (!!deviceOf(id) && isL2(deviceOf(id)!)));
+  const hasInput = (id: NodeId): boolean => (free ? id !== 'isp' : id === 'pc' || !!deviceOf(id));
+  const validTarget = (id: NodeId, port: 'in' | 'out', target: NodeId) => (port === 'in' ? canPlug(id, target) : canPlug(target, id));
 
   const cableDown = (e: React.PointerEvent, id: NodeId, port: 'in' | 'out') => {
     if (!e.isPrimary || e.button !== 0) return;
     e.stopPropagation();
     e.currentTarget.setPointerCapture(e.pointerId);
+    if (p.openNode) p.onCloseNode(); // otevřený panel by zakrýval cílová zařízení
     const w = toWorld(e.clientX, e.clientY);
     setCable({ id, port, x: w.x, y: w.y, over: null, moved: false });
     cableDownAt.current = { x: e.clientX, y: e.clientY };
@@ -435,7 +432,7 @@ export default function Topology(p: Props) {
     if (under && validTarget(c.id, c.port, under)) {
       if (c.port === 'in') p.onUplink(c.id, under);
       else p.onUplink(under, c.id);
-    } else if (!under && c.port === 'in' && freeParent(topo, c.id)) {
+    } else if (!under && c.port === 'in' && links.some((l) => l.to === c.id)) {
       p.onUplink(c.id, ''); // kabel pustěný do prázdna = odpojení
     }
   };
@@ -444,7 +441,7 @@ export default function Topology(p: Props) {
   /** Tečka (konektor) nahoře / dole na kartě. */
   const portDot = (id: NodeId, port: 'in' | 'out') => {
     const locked = id === 'r1' && port === 'in';
-    const connected = port === 'in' ? !!freeParent(topo, id) : links.some((l) => l.from === id);
+    const connected = port === 'in' ? links.some((l) => l.to === id) : links.some((l) => l.from === id);
     return (
       <span
         data-cable={port}
@@ -531,7 +528,7 @@ export default function Topology(p: Props) {
                 }} />
             ))}
             {/* širší průhledná čára pro snadné nakliknutí kabelu (volné plátno) */}
-            {free && linkPaths.filter(({ l }) => l.to !== 'r1').map(({ l, d }) => (
+            {linkPaths.filter(({ l }) => l.to !== 'r1' && l.to !== 'r2').map(({ l, d }) => (
               <path key={`hit-${l.id}`} d={d} fill="none" stroke="transparent" strokeWidth={px(1.1)} strokeLinecap="round"
                 style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
                 onClick={() => setSelLink((cur) => (cur === l.id ? null : l.id))}>
@@ -558,10 +555,10 @@ export default function Topology(p: Props) {
           ))}
 
           {/* odpojení vybraného kabelu */}
-          {free && selLink && linkPaths.filter(({ l }) => l.id === selLink && l.to !== 'r1').map(({ l, mid }) => (
+          {selLink && linkPaths.filter(({ l }) => l.id === selLink && l.to !== 'r1' && l.to !== 'r2').map(({ l, mid }) => (
             <button key={`cut-${l.id}`} type="button" data-confirm
               onClick={() => { setSelLink(null); p.onUplink(l.to, ''); }}
-              title={`Odpojit kabel (${p.devices.find((x) => x.id === l.to)?.name ?? l.to})`} aria-label="Odpojit kabel"
+              title={`Odpojit kabel (${p.devices.find((x) => x.id === l.to)?.name ?? 'Klientské PC'})`} aria-label="Odpojit kabel"
               className="absolute z-[35] -translate-x-1/2 -translate-y-1/2 inline-flex items-center gap-1.5 rounded-full bg-rose-600 hover:bg-rose-700 text-white text-sm font-bold pl-2.5 pr-3 py-1.5 shadow-lg border-2 border-white dark:border-slate-900"
               style={{ left: mid.x, top: mid.y }}>
               <Unplug className="w-4 h-4" /> Odpojit
@@ -594,8 +591,8 @@ export default function Topology(p: Props) {
                   onToggle={() => p.onToggleNode(id)}
                   onDragEnd={endDrag}
                 />
-                {free && id !== 'isp' && portDot(id, 'in')}
-                {free && canHostChildren(topo, id) && portDot(id, 'out')}
+                {hasInput(id) && portDot(id, 'in')}
+                {canHost(id) && portDot(id, 'out')}
                 {removable(id) && (
                   <button type="button" onClick={() => setDelId(id)} data-confirm title="Odebrat zařízení" aria-label={`Odebrat ${deviceOf(id)?.name ?? 'zařízení'}`}
                     className="absolute top-2 right-10 z-20 w-6 h-6 rounded-full flex items-center justify-center bg-surface/90 border border-line-strong text-ink-3 hover:bg-rose-500 hover:border-rose-500 hover:text-white transition">

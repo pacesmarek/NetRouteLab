@@ -108,7 +108,7 @@ export function sanitizeDoc(raw: unknown): Doc | null {
     } else {
       for (const [k, v] of Object.entries(raw.uplinks)) {
         const parent = doc.devices.find((d) => d.id === v);
-        if (nodeIds.has(k) && k !== 'isp' && k !== 'r1' && k !== 'r2' && typeof v === 'string' && (v === 'r2' || (parent && isL2(parent) && v !== k))) doc.uplinks[k] = v;
+        if (nodeIds.has(k) && k !== 'isp' && k !== 'r1' && k !== 'r2' && typeof v === 'string' && (v === '' || v === 'r2' || (parent && isL2(parent) && v !== k))) doc.uplinks[k] = v; // '' = nezapojeno
       }
     }
   }

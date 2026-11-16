@@ -7,6 +7,7 @@ export function chainToRouter(uplinks: Uplinks, id: NodeId): NodeId[] {
   let cur = id;
   for (let i = 0; i < 12; i++) {
     const up = uplinks[cur] ?? 'r2';
+    if (up === '') return out; // kabel odpojen – cesta končí u tohoto uzlu
     if (out.includes(up)) break; // smyčka
     out.push(up);
     if (up === 'r2') return out;

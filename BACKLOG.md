@@ -76,6 +76,7 @@ _nic_
 | 2026-11-16 | Changelog a číslo verze v aplikaci; vysvětlení tlačítka „Kalkulačka sítí“ |
 | 2026-11-16 | DHCP server na Routeru 2 a automatické získání adresy u zařízení (verze 1.3.0); úloha #7 |
 | 2026-11-16 | Přetahování nových zařízení z panelu přímo na plochu |
+| 2026-11-16 | Záložky: více pláten (volných i úloh) vedle sebe, každé s vlastní historií a uložením (verze 1.5.0) |
 | 2026-11-16 | Volné plátno: výchozí prázdné plátno (ISP + hraniční router), routery, libovolná topologie, přepojování kabelů tečkami, režimy AP (Access Point / Klient / Bridge), DHCP na routerech i AP, celá obrazovka, štětec a reset plátna, rychlé smazání z karty (verze 1.4.0) |
 
 ## Zamítnuto

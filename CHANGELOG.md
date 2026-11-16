@@ -3,6 +3,18 @@
 Přehled verzí a změn. Zobrazuje se i v aplikaci (odkaz „Co je nového“ v patičce).
 Formát: `## verze – datum`, sekce `### Přidáno / Změněno / Opraveno`, položky jako odrážky.
 
+## 1.5.0 – 2026-11-16
+
+### Přidáno
+- **Záložky**: lze mít otevřených až 10 pláten vedle sebe (volná plátna i úlohy). Každá záložka má vlastní zařízení, hodnoty a vlastní krok zpět; všechny se ukládají v prohlížeči
+- Úlohy, „Volné plátno“, import souboru i odkaz se otevírají v nové záložce (prázdné volné plátno se jen nahradí), takže se nepřepisuje rozdělaná práce
+- Záložku lze přejmenovat (dvojklik nebo tužka) a zavřít; zavření rozdělané práce se potvrzuje
+- Kabel lze nakliknout a odpojit i v úlohách (Router 2, switch, AP); odpojené zařízení je „nezapojeno“, ping, traceroute i test z internetu to srozumitelně nahlásí. Zapojit zpět lze tažením za tečku (úlohy mají stejné konektory jako volné plátno) nebo v nastavení zařízení v poli „Připojeno k“; otevřený panel se při tažení kabelu zavře, aby nezakrýval cíl
+
+### Změněno
+- Výběrová pole mají vlastní šipku s odstupem od kraje a při zvýraznění se jim neořezává okraj
+- Obnovení plátna (tlačítko na plátně) pracuje v aktuální záložce
+
 ## 1.4.0 – 2026-11-16
 
 ### Přidáno
