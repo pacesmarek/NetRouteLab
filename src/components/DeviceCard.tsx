@@ -36,7 +36,7 @@ export default function DeviceCard(p: Props) {
   const border =
     p.status === 'ok' ? 'border-emerald-500 ring-4 ring-emerald-500/20'
     : p.status === 'error' ? 'border-rose-500 ring-4 ring-rose-500/20'
-    : 'border-line-strong';
+    : p.open ? 'border-blue-700 dark:border-blue-400' : 'border-line-strong';
 
   return (
     <button
@@ -48,7 +48,7 @@ export default function DeviceCard(p: Props) {
       title="Klik = nastavení zařízení · tažení = přesun"
       style={{ width: `${CARD_W}rem`, height: `${CARD_H}rem`, touchAction: 'none' }}
       className={`relative flex flex-col text-left bg-surface border-[3px] rounded-2xl overflow-hidden select-none
-        ${border} ${p.open ? 'outline-[3px] outline-blue-400/50 outline-offset-2' : ''}
+        ${border}
         ${dragging ? 'shadow-2xl scale-[1.02] cursor-grabbing' : 'shadow-sm hover:shadow-md cursor-grab'}
         transition-[box-shadow,transform,border-color]`}
       onClick={() => {

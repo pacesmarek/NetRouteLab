@@ -1,5 +1,6 @@
-import type { Config, Device, DeviceKind, IspConfig, Mode, NodeId, Pos, Rules, Scenario, Uplinks } from './model';
-import { DEFAULT_ISP, SCENARIOS, emptyConfig, emptyRules, hasIp, isL2 } from './model';
+import type { ApMode, Config, Device, DeviceKind, IspConfig, Mode, NodeId, Pos, Rules, Scenario, Uplinks } from './model';
+import { AP_MODES, AP_SUFFIXES, DEFAULT_ISP, ROUTER_SUFFIXES, SCENARIOS, emptyConfig, emptyRules, hasIp, isL2, isRouter } from './model';
+import { canParent } from './free';
 
 /** Celý „dokument“ – to, co se ukládá, sdílí a vrací krokem zpět. */
 export interface Doc {
@@ -27,7 +28,14 @@ export const emptyDoc = (): Doc => ({
 });
 
 /** Pole, která zařízení má mít v konfiguraci. */
-export const fieldsOfDevice = (d: Device): string[] => (hasIp(d) ? DEV_SUFFIXES.map((s) => `${d.id}-${s}`) : []);
+export const fieldsOfDevice = (d: Device): string[] =>
+  hasIp(d) ? DEV_SUFFIXES.map((s) => `${d.id}-${s}`)
+  : isRouter(d) ? ROUTER_SUFFIXES.map((s) => `${d.id}-${s}`)
+  : d.kind === 'ap' ? AP_SUFFIXES.map((s) => `${d.id}-${s}`)
+  : [];
+
+/** Volné plátno: jen ISP a hraniční router, nic dalšího. */
+export const playgroundDoc = (): Doc => ({ ...emptyDoc(), mode: 'playground' });
 
 /** Další volné číslo zařízení (dev-N). */
 export const nextDeviceNumber = (devices: Device[]): number =>
@@ -39,7 +47,7 @@ export function docForScenario(scenario: Scenario | null): Doc {
   if (!scenario) return doc;
   doc.isp = { gwIp: scenario.ispGw, gwMask: scenario.ispMask, dnsIp: scenario.ispDns };
   const counts: Partial<Record<DeviceKind, number>> = {};
-  const labels: Record<DeviceKind, string> = { pc: 'PC', camera: 'Kamera', webserver: 'Web server', switch: 'Switch', ap: 'Wi-Fi AP' };
+  const labels: Record<DeviceKind, string> = { pc: 'PC', camera: 'Kamera', webserver: 'Web server', switch: 'Switch', ap: 'Wi-Fi AP', router: 'Router' };
   const made: Device[] = [];
   (scenario.devices ?? []).forEach((spec, i) => {
     counts[spec.kind] = (counts[spec.kind] ?? 0) + 1;
@@ -57,36 +65,51 @@ export function docForScenario(scenario: Scenario | null): Doc {
 // Ověření dat z odkazu / souboru / úložiště
 
 const ID_RE = /^[a-z0-9-]{1,40}$/;
-const KINDS: DeviceKind[] = ['pc', 'camera', 'webserver', 'switch', 'ap'];
+const KINDS: DeviceKind[] = ['pc', 'camera', 'webserver', 'switch', 'ap', 'router'];
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v: unknown, max = 200): string => (typeof v === 'string' ? v.slice(0, max) : '');
 
 export function sanitizeDoc(raw: unknown): Doc | null {
   if (!isObj(raw)) return null;
   const doc = emptyDoc();
+  const free = raw.mode === 'playground';
 
   if (isObj(raw.cfg)) {
     for (const [k, v] of Object.entries(raw.cfg)) if (ID_RE.test(k) && typeof v === 'string') doc.cfg[k] = v.slice(0, 64);
   }
   if (Array.isArray(raw.devices)) {
-    for (const d of raw.devices.slice(0, 40)) {
+    for (const d of raw.devices.slice(0, 60)) {
       if (!isObj(d) || typeof d.id !== 'string' || !/^dev-\d{1,4}$/.test(d.id)) continue;
       if (!KINDS.includes(d.kind as DeviceKind)) continue;
+      if (!free && d.kind === 'router') continue; // routery jen ve volném plátně
       if (doc.devices.some((x) => x.id === d.id)) continue;
-      doc.devices.push({ id: d.id, kind: d.kind as DeviceKind, name: str(d.name, 28) || d.id });
+      const dev: Device = { id: d.id, kind: d.kind as DeviceKind, name: str(d.name, 28) || d.id };
+      if (dev.kind === 'ap' && AP_MODES.includes(d.apMode as ApMode) && d.apMode !== 'ap') dev.apMode = d.apMode as ApMode;
+      doc.devices.push(dev);
     }
   }
+  doc.mode = raw.mode === 'sample' || raw.mode === 'scenario' || free ? (raw.mode as Doc['mode']) : 'default';
+
+  const ruleOwners = new Set<string>(['r1', 'r2', ...doc.devices.filter(isRouter).map((d) => d.id)]);
   if (isObj(raw.rules)) {
-    for (const r of ['r1', 'r2'] as const) {
+    for (const r of ruleOwners) {
       const list = raw.rules[r];
       if (Array.isArray(list)) doc.rules[r] = [...new Set(list.filter((x): x is string => typeof x === 'string' && ID_RE.test(x)))].slice(0, 40);
     }
   }
-  const nodeIds = new Set<string>(['isp', 'r1', 'r2', 'pc', ...doc.devices.map((d) => d.id)]);
+  const nodeIds = new Set<string>(free ? ['isp', 'r1', ...doc.devices.map((d) => d.id)] : ['isp', 'r1', 'r2', 'pc', ...doc.devices.map((d) => d.id)]);
   if (isObj(raw.uplinks)) {
-    for (const [k, v] of Object.entries(raw.uplinks)) {
-      const parent = doc.devices.find((d) => d.id === v);
-      if (nodeIds.has(k) && k !== 'isp' && k !== 'r1' && k !== 'r2' && typeof v === 'string' && (v === 'r2' || (parent && isL2(parent) && v !== k))) doc.uplinks[k] = v;
+    if (free) {
+      // volné plátno: platné typy a žádné smyčky (kontroluje canParent průběžně)
+      const t = { devices: doc.devices, uplinks: doc.uplinks };
+      for (const [k, v] of Object.entries(raw.uplinks)) {
+        if (typeof v === 'string' && v !== '' && nodeIds.has(k) && canParent(t, k, v)) doc.uplinks[k] = v;
+      }
+    } else {
+      for (const [k, v] of Object.entries(raw.uplinks)) {
+        const parent = doc.devices.find((d) => d.id === v);
+        if (nodeIds.has(k) && k !== 'isp' && k !== 'r1' && k !== 'r2' && typeof v === 'string' && (v === 'r2' || (parent && isL2(parent) && v !== k))) doc.uplinks[k] = v;
+      }
     }
   }
   if (isObj(raw.positions)) {
@@ -102,12 +125,11 @@ export function sanitizeDoc(raw: unknown): Doc | null {
     const known = SCENARIOS.find((s) => s.title === sc.title);
     doc.scenario = known ?? null; // nové scénáře z odkazů ber jen ze známých
   }
-  doc.mode = raw.mode === 'sample' || raw.mode === 'scenario' ? raw.mode : 'default';
   if (doc.mode === 'scenario' && !doc.scenario) doc.mode = 'default';
 
   // každé zařízení má mít svá pole
   for (const d of doc.devices) for (const f of fieldsOfDevice(d)) if (!(f in doc.cfg)) doc.cfg[f] = '';
-  for (const r of ['r1', 'r2'] as const) for (const id of doc.rules[r]) for (const part of ['ext', 'ip', 'port']) {
+  for (const r of Object.keys(doc.rules)) for (const id of doc.rules[r]) for (const part of ['ext', 'ip', 'port']) {
     const k = `${r}-pat-${id}-${part}`;
     if (!(k in doc.cfg)) doc.cfg[k] = '';
   }
@@ -116,7 +138,7 @@ export function sanitizeDoc(raw: unknown): Doc | null {
 
 /** Zadání bez vyplněných hodnot studenta (pro sdílení). */
 export function assignmentOf(doc: Doc): Doc {
-  return { ...doc, cfg: Object.fromEntries(Object.keys(doc.cfg).map((k) => [k, ''])) , rules: emptyRules() };
+  return { ...doc, cfg: Object.fromEntries(Object.keys(doc.cfg).map((k) => [k, ''])) , rules: Object.fromEntries(Object.keys(doc.rules).map((k) => [k, [] as string[]])) as Rules };
 }
 
 // ----------------------------------------------------------------------------

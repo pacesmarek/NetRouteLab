@@ -1,4 +1,4 @@
-import { Calculator, CheckCircle2, Compass, CircleHelp, Download, FileUp, Image as ImageIcon, Link2, ListChecks, Moon, Redo2, Settings, Share2, Shuffle, Sun, Trash2, Undo2 } from 'lucide-react';
+import { CheckCircle2, Compass, Download, FileUp, Image as ImageIcon, LayoutTemplate, Link2, ListChecks, Moon, Redo2, Settings, Share2, Shuffle, Sun, Trash2, Undo2 } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import Toggle from './Toggle';
 
@@ -11,6 +11,9 @@ const FONT_LABEL: Record<FontKey, string> = { normal: 'Normální', large: 'Vět
 const SPEED_LABEL: Record<SpeedKey, string> = { fast: 'Rychle', normal: 'Normální', slow: 'Pomalu (výklad)' };
 
 interface Props {
+  /** volné plátno: bez Průvodce a vzorového řešení */
+  free: boolean;
+  onFree: () => void;
   showCalc: boolean;
   onToggleCalc: () => void;
   onWizard: () => void;
@@ -71,19 +74,29 @@ export default function Header(p: Props) {
         <div className="flex flex-wrap items-center gap-2">
           <button onClick={p.onUndo} disabled={!p.canUndo} className={neutral} title="Zpět (Ctrl+Z)" aria-label="Zpět"><Undo2 className="w-4 h-4" /></button>
           <button onClick={p.onRedo} disabled={!p.canRedo} className={neutral} title="Znovu (Ctrl+Shift+Z)" aria-label="Znovu"><Redo2 className="w-4 h-4" /></button>
-          <button onClick={p.onWizard} className={`${btn} font-semibold border-indigo-300 bg-indigo-50 text-indigo-900 dark:text-indigo-100 hover:bg-indigo-100 dark:border-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-200 dark:hover:bg-indigo-900/50`} title="Krok za krokem provede nastavením celé sítě">
-            <Compass className="w-4 h-4 text-indigo-600 dark:text-indigo-400" /> Průvodce
-          </button>
-          <button onClick={p.onTasks} className={`${btn} font-semibold border-blue-300 bg-blue-50 text-blue-900 dark:text-blue-100 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950/50 dark:text-blue-200 dark:hover:bg-blue-900/50`} title="Seznam všech úloh – vyberte a spusťte libovolné zadání">
-            <ListChecks className="w-4 h-4 text-blue-600 dark:text-blue-400" /> Úlohy
-          </button>
-          <CalcToggle show={p.showCalc} onToggle={p.onToggleCalc} />
-          <button onClick={p.onRandom} aria-label="Nové zadání" className={`${btn} border-amber-300 bg-amber-50 text-amber-900 dark:text-amber-100 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-200 dark:hover:bg-amber-900/50`} title="Náhodně vybere jednu z úloh">
-            <Shuffle className="w-4 h-4 text-amber-600 dark:text-amber-400" /> <span className="hidden 2xl:inline">Nové zadání</span>
-          </button>
-          <button onClick={p.onSample} title="Vyplní vzorové správné řešení" aria-label="Vzorové řešení" className={`${btn} border-emerald-300 bg-emerald-50 text-emerald-900 dark:text-emerald-100 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-200 dark:hover:bg-emerald-900/50`}>
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" /> <span className="hidden 2xl:inline">Vzorové řešení</span>
-          </button>
+          {!p.free && (
+            <button onClick={p.onWizard} className={`${btn} font-semibold border-indigo-300 bg-indigo-50 text-indigo-900 dark:text-indigo-100 hover:bg-indigo-100 dark:border-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-200 dark:hover:bg-indigo-900/50`} title="Krok za krokem provede nastavením celé sítě">
+              <Compass className="w-4 h-4 text-indigo-600 dark:text-indigo-400" /> Průvodce
+            </button>
+          )}
+          {!p.free && (
+            <button onClick={p.onFree} className={`${btn} font-semibold border-teal-300 bg-teal-50 text-teal-900 dark:text-teal-100 hover:bg-teal-100 dark:border-teal-700 dark:bg-teal-950/50 dark:text-teal-200 dark:hover:bg-teal-900/50`} title="Prázdné plátno: jen ISP a hraniční router, zbytek si postavíte sami">
+              <LayoutTemplate className="w-4 h-4 text-teal-600 dark:text-teal-400" /> Volné plátno
+            </button>
+          )}
+          <div className="inline-flex">
+            <button onClick={p.onTasks} className={`${btn} rounded-r-none font-semibold border-blue-300 bg-blue-50 text-blue-900 dark:text-blue-100 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950/50 dark:text-blue-200 dark:hover:bg-blue-900/50`} title="Seznam všech úloh – vyberte a spusťte libovolné zadání">
+              <ListChecks className="w-4 h-4 text-blue-600 dark:text-blue-400" /> Úlohy
+            </button>
+            <button onClick={p.onRandom} aria-label="Náhodná úloha" className={`${btn} rounded-l-none -ml-px px-2.5 border-blue-300 bg-blue-50 text-blue-900 dark:text-blue-100 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950/50 dark:text-blue-200 dark:hover:bg-blue-900/50`} title="Náhodně vybere jednu z úloh">
+              <Shuffle className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+            </button>
+          </div>
+          {!p.free && (
+            <button onClick={p.onSample} title="Vyplní vzorové správné řešení" aria-label="Vzorové řešení" className={`${btn} border-emerald-300 bg-emerald-50 text-emerald-900 dark:text-emerald-100 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-200 dark:hover:bg-emerald-900/50`}>
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" /> <span className="hidden 2xl:inline">Vzorové řešení</span>
+            </button>
+          )}
           <button onClick={p.onClear} title="Vymazat všechna vyplněná pole" aria-label="Vymazat vše" className={`${btn} border-line-strong bg-surface text-ink-2 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 dark:hover:bg-rose-950/50 dark:hover:text-rose-300 dark:hover:border-rose-800`}>
             <Trash2 className="w-4 h-4" /> <span className="hidden 2xl:inline">Vymazat vše</span>
           </button>
@@ -100,38 +113,6 @@ export default function Header(p: Props) {
         </div>
       </div>
     </header>
-  );
-}
-
-/** Přepínač kalkulačky sítí s vysvětlením, co zapnutí / vypnutí změní. */
-function CalcToggle({ show, onToggle }: { show: boolean; onToggle: () => void }) {
-  const info = usePopover();
-  return (
-    <div className="relative flex" ref={info.ref}>
-      <button onClick={onToggle} className={`${neutral} rounded-r-none border-r-0`} title="Zobrazí nebo skryje výpočet adresy sítě a broadcastu v nastavení zařízení" aria-pressed={show}>
-        <Calculator className="w-4 h-4 text-indigo-600 dark:text-indigo-400" /> <span className="hidden 2xl:inline">{show ? 'Skrýt kalkulačku sítí' : 'Zobrazit kalkulačku sítí'}</span><span className="2xl:hidden">Kalkulačka</span>
-      </button>
-      <button onClick={() => info.setOpen((o) => !o)} className={`${neutral} rounded-l-none px-2`} aria-label="Co dělá kalkulačka sítí?" aria-expanded={info.open} title="Co dělá kalkulačka sítí?">
-        <CircleHelp className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-      </button>
-      {info.open && (
-        <div className="absolute left-0 top-full mt-2 w-[26rem] max-w-[calc(100vw-1.5rem)] bg-surface border border-line rounded-xl shadow-xl p-4 z-50 space-y-3 text-sm text-ink">
-          <div className="font-bold text-base text-ink flex items-center gap-2"><Calculator className="w-4 h-4 text-indigo-600 dark:text-indigo-400" /> Kalkulačka sítí</div>
-          <p>Malé pole <strong>Síť / Bcast</strong> pod adresou a maskou v nastavení zařízení. Z právě zadané IP adresy a masky spočítá <strong>adresu sítě</strong> a <strong>broadcast</strong> a přepočítává se při psaní.</p>
-          <div className="grid grid-cols-2 gap-2">
-            <div className={`rounded-lg border p-2.5 ${show ? 'border-emerald-400 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-950/50 dark:bg-emerald-950/40' : 'border-line bg-surface-2'}`}>
-              <div className="font-bold text-ink mb-1">Zapnuto {show && '✓'}</div>
-              Pole Síť a Bcast se zobrazí u každého rozhraní. Student hned vidí, zda jsou zařízení ve stejné podsíti.
-            </div>
-            <div className={`rounded-lg border p-2.5 ${!show ? 'border-emerald-400 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-950/50 dark:bg-emerald-950/40' : 'border-line bg-surface-2'}`}>
-              <div className="font-bold text-ink mb-1">Vypnuto {!show && '✓'}</div>
-              Pole zmizí – adresu sítě a broadcast musí student spočítat sám. Vhodné pro procvičování.
-            </div>
-          </div>
-          <p className="text-xs text-ink-3">Na výsledek testu to nemá vliv. Kalkulačku uvidíte jen v otevřeném nastavení zařízení (ISP má pevné hodnoty a kalkulačku nemá).</p>
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -217,6 +198,9 @@ function SettingsMenu(p: Props) {
             <div className={section}>Chování</div>
             <Check checked={p.sound} onChange={p.onSound} title="Zvuk">Krátký signál při úspěchu, chybě a na hopech traceroute.</Check>
             <Check checked={p.snap} onChange={p.onSnap} title="Přichytávání k mřížce">Při přetahování se zařízení zarovnají a ukážou se vodítka.</Check>
+            <Check checked={p.showCalc} onChange={(v) => { if (v !== p.showCalc) p.onToggleCalc(); }} title="Kalkulačka sítí">
+              Pod adresou a maskou v nastavení zařízení ukáže <strong>síť</strong> a <strong>broadcast</strong>. Po vypnutí je musí student spočítat sám. Na výsledek testu to nemá vliv.
+            </Check>
           </div>
           <div className="border-t border-line pt-3">
             <div className={section}>Pokročilé funkce</div>

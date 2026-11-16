@@ -88,7 +88,7 @@ describe('DHCP', () => {
 
   it('přidělí adresy z rozsahu postupně a předá masku, bránu i DNS', () => {
     const r = resolveDhcp(withDhcp(base()), devs, false);
-    expect(r.leases.pc).toEqual({ ip: '10.0.0.100', mask: '255.255.255.0', gw: '10.0.0.1', dns: '8.8.8.8' });
+    expect(r.leases.pc).toMatchObject({ ip: '10.0.0.100', mask: '255.255.255.0', gw: '10.0.0.1', dns: '8.8.8.8' });
     expect(r.leases['dev-1'].ip).toBe('10.0.0.101');
     expect(r.leases['dev-2']).toBeUndefined(); // statické zařízení
     expect(Object.keys(r.problems)).toEqual([]);

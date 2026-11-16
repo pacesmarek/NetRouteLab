@@ -11,14 +11,17 @@ import Topology, { type LayoutApi, type PacketState } from './components/Topolog
 import Wizard from './components/Wizard';
 import { useHistory, useLocalStorage, useViewportRem } from './hooks';
 import {
-  assignmentOf, decodeDoc, docForScenario, emptyDoc, encodeDoc, fieldsOfDevice, nextDeviceNumber, sanitizeDoc, shareUrl, type Doc,
+  assignmentOf, decodeDoc, docForScenario, encodeDoc, fieldsOfDevice, nextDeviceNumber, playgroundDoc, sanitizeDoc, shareUrl, type Doc,
 } from './lib/doc';
+import {
+  canParent, dhcpConflicts as findDhcpConflicts, dhcpServerOf, freeNodes, kindOf, nameOf as topoName, ownerOf, pathAndLinks, simulateFree, simulateInboundFree, traceHopsFree, treeLayout, type Topo,
+} from './lib/free';
 import { resolveDhcp } from './lib/dhcp';
 import { fmtMask, ipMask } from './lib/format';
 import { inboundPath, linksOfPath, pingPath, traceHops } from './lib/graph';
 import {
-  DEFAULT_ISP, KIND_INFO, SCENARIOS, emptyConfig, hasIp, isL2, nodeOfField,
-  type Config, type Device, type DeviceKind, type FieldId, type LinkId, type LogItem, type NodeId, type Pos, type RouterId, type Rules, type Scenario,
+  DEFAULT_ISP, KIND_INFO, SCENARIOS, emptyConfig, hasIp, isL2, isRouter, nodeOfField,
+  type ApMode, type Config, type Device, type DeviceKind, type FieldId, type IspConfig, type LinkId, type LogItem, type NodeId, type Pos, type RouterId, type Rules, type Scenario,
 } from './lib/model';
 import { analyzeInterface, ipToLong, longToIp } from './lib/net';
 import { makePlan, solve } from './lib/plan';
@@ -28,7 +31,7 @@ import { playSound, unlockAudio } from './lib/sound';
 const INFO_LOG: LogItem[] = [{
   type: 'info',
   title: 'Připraveno',
-  text: 'Klikněte na zařízení a vyplňte jeho IP konfiguraci (nebo spusťte Průvodce). Potom klikněte na „Otestovat připojení (Ping)“.',
+  text: 'Klikněte na zařízení a vyplňte jeho IP konfiguraci. Potom klikněte na „Otestovat připojení (Ping)“.',
 }];
 
 const DOC_KEY = 'netroute.doc.v1';
@@ -47,12 +50,19 @@ const defaultDevicePos = (index: number, cols: number): Pos => {
   return { x: 1.5 + col * (CARD_W + 2), y: 2 + 3 * (CARD_H + 4) + row * (CARD_H + 3) };
 };
 
+/** Výchozí stav = volné plátno (ISP + hraniční router). Starý neupravený „základní“ stav z úložiště se také nahradí plátnem. */
 function loadDoc(): Doc {
   try {
     const raw = localStorage.getItem(DOC_KEY);
-    if (raw) return sanitizeDoc(JSON.parse(raw)) ?? emptyDoc();
+    if (raw) {
+      const d = sanitizeDoc(JSON.parse(raw));
+      if (d) {
+        const untouched = d.mode === 'default' && !d.devices.length && Object.values(d.cfg).every((v) => !v) && !Object.keys(d.positions).length;
+        return untouched ? playgroundDoc() : d;
+      }
+    }
   } catch { /* poškozená data – začneme znovu */ }
-  return emptyDoc();
+  return playgroundDoc();
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -64,7 +74,7 @@ export default function App() {
   const { cfg, devices, rules, uplinks, positions, isp, scenario, mode } = doc;
 
   const [cidr, setCidr] = useLocalStorage('netroute.cidr', false);
-  const [font, setFont] = useLocalStorage<FontKey>('netroute.font', 'large');
+  const [font, setFont] = useLocalStorage<FontKey>('netroute.font.v2', 'normal');
   const [theme, setTheme] = useLocalStorage<ThemeKey>('netroute.theme', 'system');
   const [snap, setSnap] = useLocalStorage('netroute.snap', true);
   const [sound, setSound] = useLocalStorage('netroute.sound', false);
@@ -91,9 +101,27 @@ export default function App() {
   const wide = viewRem >= 80;
   const cols = viewRem >= 62 ? 3 : viewRem >= 40 ? 2 : 1;
   const fmt = useCallback((a: string, p: number) => ipMask(a, p, cidr), [cidr]);
-  /** adresy přidělené DHCP serverem na Routeru 2 (pro simulaci i zobrazení) */
-  const dhcp = useMemo(() => resolveDhcp(cfg, devices, cidr), [cfg, devices, cidr]);
+  const free = mode === 'playground';
+  const topo: Topo = useMemo(() => ({ devices, uplinks }), [devices, uplinks]);
+  /** adresy přidělené DHCP serverem (v úlohách na Routeru 2, ve volném plátně na routeru nebo AP v dané síti) */
+  const dhcp = useMemo(() => resolveDhcp(cfg, devices, cidr, free ? {
+    serverOf: (id) => dhcpServerOf(topo, cfg, id),
+    nameOf: (id) => topoName(topo, id),
+    gatewayField: (srv) => (kindOf(topo, srv) === 'ap' ? `${srv}-dhcp-gw` : null),
+    extraFields: (srv) => {
+      const dom = kindOf(topo, srv) === 'ap' ? ownerOf(topo, srv) : srv;
+      return freeNodes(devices).filter((n) => n !== srv && ownerOf(topo, n) === dom).flatMap((n) => {
+        const k = kindOf(topo, n);
+        return k === 'router' ? [`${n}-wan-ip`] : k === 'ap' ? [`${n}-lan-ip`] : [];
+      });
+    },
+  } : undefined), [cfg, devices, cidr, free, topo]);
+  const dhcpConflicts = useMemo(() => (free ? findDhcpConflicts(topo, cfg) : {}), [free, topo, cfg]);
   const effCfg = dhcp.cfg;
+  const clients = useMemo(() => (free ? devices.filter(hasIp) : []), [free, devices]);
+  const [testSrc, setTestSrc] = useState<NodeId | null>(null);
+  /** zdroj pingu / traceroute ve volném plátně */
+  const testSource: NodeId | null = clients.find((d) => d.id === testSrc)?.id ?? clients.find((d) => d.kind === 'pc')?.id ?? clients[0]?.id ?? null;
 
   const say = useCallback((text: string) => {
     setToast(text);
@@ -137,11 +165,17 @@ export default function App() {
 
   // --- rozmístění zařízení (drag & drop) ---
   const defaults: Record<NodeId, Pos> = { ...defaultFixedPos() };
-  devices.forEach((d, i) => { defaults[d.id] = defaultDevicePos(i, cols); });
+  if (free) Object.assign(defaults, treeLayout(topo, CARD_W, CARD_H), { isp: defaults.isp, r1: defaults.r1 });
+  else devices.forEach((d, i) => { defaults[d.id] = defaultDevicePos(i, cols); });
+  /** Automatické uspořádání: volné plátno jako strom, úlohy podle výchozí mřížky. */
+  const autoLayout = () => {
+    set((d) => ({ ...d, positions: free ? treeLayout({ devices: d.devices, uplinks: d.uplinks }, CARD_W, CARD_H) : {} }));
+    say('Zařízení uspořádána');
+  };
   const layout: LayoutApi = {
     pos: { ...defaults, ...Object.fromEntries(Object.entries(positions).filter(([k]) => k in defaults)) },
     setPos: (id, x, y) => set((d) => ({ ...d, positions: { ...d.positions, [id]: { x, y } } }), `move:${id}`),
-    reset: () => set((d) => ({ ...d, positions: {} })),
+    reset: autoLayout,
   };
 
   // --- zavření otevřeného uzlu kliknutím do prostoru ---
@@ -160,8 +194,8 @@ export default function App() {
 
   // otevřený uzel, který už neexistuje (např. po kroku zpět), zavřít
   useEffect(() => {
-    if (openNode && !['isp', 'r1', 'r2', 'pc'].includes(openNode) && !devices.some((d) => d.id === openNode)) setOpenNode(null);
-  }, [devices, openNode]);
+    if (openNode && !(free ? ['isp', 'r1'] : ['isp', 'r1', 'r2', 'pc']).includes(openNode) && !devices.some((d) => d.id === openNode)) setOpenNode(null);
+  }, [devices, openNode, free]);
 
   // --- běh simulace ---
   const stopAnim = () => { window.clearTimeout(timer.current); timer.current = undefined; };
@@ -268,7 +302,16 @@ export default function App() {
   ];
 
   /** Ping do internetu z PC (základního nebo přidaného). */
-  const runPing = (clientId: NodeId = 'pc') => {
+  const runPing = (clientId?: NodeId) => {
+    if (free) {
+      const id = clientId ?? testSource;
+      if (!id) { say('Nejdřív přidejte PC nebo jiné koncové zařízení'); return; }
+      const res = dhcpFailure(id) ?? simulateFree(effCfg, isp, topo, id, cidr, fmt);
+      const { path, links } = pathAndLinks(topo, id);
+      animate(path, links, res, { run: 'ICMP Ping...', ok: '✓ Pong (OK)', err: '✕ Paket zahozen', badgeOk: 'Připojení k internetu je funkční!' });
+      return;
+    }
+    clientId ??= 'pc';
     const dev = devices.find((d) => d.id === clientId);
     const client = dev ? { id: dev.id, name: dev.name } : PC_CLIENT;
     const res = dhcpFailure(clientId) ?? simulate(effCfg, isp, scenario, cidr, fmt, client, othersFor(clientId));
@@ -281,6 +324,13 @@ export default function App() {
   const runInbound = (deviceId: NodeId) => {
     const dev = devices.find((d) => d.id === deviceId);
     if (!dev) return;
+    if (free) {
+      const res = dhcpFailure(deviceId) ?? simulateInboundFree(effCfg, isp, topo, deviceId, rules, cidr, fmt);
+      const { path, links } = pathAndLinks(topo, deviceId);
+      animate([...path].reverse(), [...links].reverse(), res,
+        { run: `${KIND_INFO[dev.kind].service ?? 'TCP'} z internetu...`, ok: `✓ ${dev.name} odpovídá`, err: '✕ Spojení zahozeno', badgeOk: `${dev.name} je dostupné z internetu!` });
+      return;
+    }
     const res = dhcpFailure(deviceId) ?? simulateInbound(effCfg, isp, cidr, fmt, dev, rules, othersFor(deviceId));
     const proto = KIND_INFO[dev.kind].service ?? 'TCP';
     const path = inboundPath(uplinks, deviceId);
@@ -292,16 +342,20 @@ export default function App() {
   const runTrace = () => {
     unlockAudio();
     resetVisual();
-    const res = dhcpFailure('pc') ?? simulate(effCfg, isp, scenario, cidr, fmt, PC_CLIENT, othersFor('pc'));
-    const reached = res.logs.filter((l) => l.type === 'success').length; // 0–4 odpovídajících hopů
+    const src: NodeId | null = free ? testSource : 'pc';
+    if (!src) { say('Nejdřív přidejte PC nebo jiné koncové zařízení'); return; }
+    const res = dhcpFailure(src) ?? (free ? simulateFree(effCfg, isp, topo, src, cidr, fmt) : simulate(effCfg, isp, scenario, cidr, fmt, PC_CLIENT, othersFor('pc')));
+    const reached = res.logs.filter((l) => l.type === 'success').length; // počet odpovídajících hopů
     const t = (id: string) => (effCfg[id] ?? '').trim() || '?';
-    const hops = traceHops({ r2Lan: t('r2-lan-ip'), r1Lan: t('r1-lan-ip'), ispGw: isp.gwIp, target: isp.dnsIp });
-    const path = pingPath(uplinks, 'pc');
-    const links = linksOfPath(uplinks, path) as LinkId[];
+    const hops = free
+      ? traceHopsFree(effCfg, isp, topo, src)
+      : traceHops({ r2Lan: t('r2-lan-ip'), r1Lan: t('r1-lan-ip'), ispGw: isp.gwIp, target: isp.dnsIp });
+    const path = free ? pathAndLinks(topo, src).path : pingPath(uplinks, 'pc');
+    const links = (free ? pathAndLinks(topo, src).links : linksOfPath(uplinks, path)) as LinkId[];
 
-    setLogs([{ type: 'info', title: `traceroute to ${isp.dnsIp}, 30 hops max`, text: 'Z klientského PC. Každý hop je zařízení, na kterém vyprší TTL a které odpoví.' }]);
+    setLogs([{ type: 'info', title: `traceroute to ${isp.dnsIp}, 30 hops max`, text: `Ze zařízení ${free ? topoName(topo, src) : 'Klientské PC'}. Každý hop je zařízení, na kterém vyprší TTL a které odpoví.` }]);
     setBadge({ text: 'Traceroute běží…', tone: 'neutral' });
-    setPacket({ node: 'pc', kind: 'run', label: 'TTL=1' });
+    setPacket({ node: src, kind: 'run', label: 'TTL=1' });
 
     let i = 0;
     const step = () => {
@@ -319,7 +373,7 @@ export default function App() {
         }, stepMs);
       } else if (i < hops.length) {
         const hop = hops[i];
-        const last = i === 0 ? 'pc' : hops[i - 1].node;
+        const last = i === 0 ? src : hops[i - 1].node;
         setNodeStatus((s) => ({ ...s, [last]: 'error' }));
         setPacket({ node: last, kind: 'error', label: `TTL=${hop.ttl}: * * *` });
         setLogs((l) => [...l, { type: 'error', title: `${hop.ttl}   * * *`, text: 'Žádná odpověď (vypršel časový limit).' }, ...res.logs.filter((x) => x.type === 'error')]);
@@ -338,13 +392,14 @@ export default function App() {
   };
 
   // --- zařízení v plátně ---
-  /** Přidá zařízení. S `drop` (souřadnice puštění) ho umístí na to místo plochy a případně připojí ke switchi / AP pod kurzorem. */
+  /** Přidá zařízení. S `drop` (souřadnice puštění) ho umístí na to místo plochy a případně připojí k zařízení pod kurzorem. */
   const addDevice = (kind: DeviceKind, drop?: { clientX: number; clientY: number }) => {
     const n = nextDeviceNumber(devices);
     const id = `dev-${n}`;
     let k = 1;
     while (devices.some((d) => d.name === `${KIND_INFO[kind].label} ${k}`)) k++;
     const device: Device = { id, kind, name: `${KIND_INFO[kind].label} ${k}` };
+    const withNew: Topo = { devices: [...devices, device], uplinks };
 
     let at: Pos | null = null;
     let parent: NodeId | null = null;
@@ -361,15 +416,36 @@ export default function App() {
       const under = document.elementsFromPoint(drop.clientX, drop.clientY)
         .map((el) => el.closest('[data-node-root]')?.getAttribute('data-node-root'))
         .find((x): x is string => !!x);
-      const target = under ? devices.find((d) => d.id === under) : undefined;
-      if (target && isL2(target)) {
-        parent = target.id;
-        // nové zařízení nepoložíme přímo na switch / AP, ale pod něj (vedle už připojených)
-        const base = layout.pos[target.id];
-        const kids = devices.filter((x) => (uplinks[x.id] ?? 'r2') === target.id).length;
-        if (base) at = { x: base.x + kids * (CARD_W + 2), y: base.y + CARD_H + 3 };
+      if (free) {
+        // puštění na zařízení ho tam rovnou zapojí (pokud to jde); do prázdna = nezapojeno
+        if (under && canParent(withNew, id, under)) parent = under;
+      } else {
+        const target = under ? devices.find((d) => d.id === under) : undefined;
+        if (target && isL2(target)) parent = target.id;
       }
+      if (parent && parent !== 'isp') {
+        // nové zařízení nepoložíme přímo na rodiče, ale pod něj (vedle už připojených)
+        const base = layout.pos[parent];
+        const kids = devices.filter((x) => (uplinks[x.id] ?? (free ? '' : 'r2')) === parent).length;
+        if (base) at = { x: base.x + kids * (CARD_W + 2), y: base.y + CARD_H + (free ? 4 : 3) };
+      }
+    } else if (free) {
+      // klik: zapojí se k právě otevřenému zařízení (pokud má porty), jinak k hraničnímu routeru
+      parent = openNode && canParent(withNew, id, openNode) ? openNode : 'r1';
     }
+    if (free && !at) {
+      // pod rodiče, vedle sourozenců; při kolizi se posune doprava (nebo na další řádek)
+      const base = layout.pos[parent ?? 'r1'] ?? { x: 1.5, y: 2 };
+      const others = freeNodes(devices).map((x) => layout.pos[x]).filter(Boolean);
+      let x = base.x, y = base.y + CARD_H + 4;
+      const hit = (px: number, py: number) => others.some((o) => Math.abs(o.x - px) < CARD_W + 0.5 && Math.abs(o.y - py) < CARD_H + 0.5);
+      for (let g = 0; g < 40 && hit(x, y); g++) {
+        x += CARD_W + 2;
+        if (x > 1.5 + 3 * (CARD_W + 2)) { x = 1.5; y += CARD_H + 4; }
+      }
+      at = { x, y };
+    }
+    if (free && parent === 'isp' && at) at = { x: at.x, y: Math.max(at.y, 2 + CARD_H + 4) };
 
     resetVisual();
     set((d) => ({
@@ -378,9 +454,11 @@ export default function App() {
       cfg: { ...d.cfg, ...Object.fromEntries(fieldsOfDevice(device).map((f) => [f, ''])) },
       positions: { ...omit(d.positions, (key) => key !== id), ...(at ? { [id]: at } : {}) },
       uplinks: parent ? { ...d.uplinks, [id]: parent } : d.uplinks,
+      rules: isRouter(device) ? { ...d.rules, [id]: [] } : d.rules,
     }));
     setOpenNode(id);
-    if (parent) say(`${device.name} připojeno k ${devices.find((d) => d.id === parent)?.name ?? 'zařízení'}`);
+    if (parent) say(`${device.name} připojeno k ${topoName(withNew, parent)}`);
+    else if (free) say(`${device.name} není zapojeno – přetáhněte kabel za tečku nahoře na kartě`);
   };
 
   const removeDevice = (id: NodeId) => {
@@ -388,13 +466,15 @@ export default function App() {
     set((d) => {
       const parent = d.uplinks[id] ?? 'r2';
       const ups = omit(d.uplinks, (k) => k !== id);
-      for (const k of Object.keys(ups)) if (ups[k] === id) ups[k] = parent; // děti přejdou o úroveň výš
+      // úlohy: děti přejdou o úroveň výš; volné plátno: děti zůstanou nezapojené
+      for (const k of Object.keys(ups)) if (ups[k] === id) { if (d.mode === 'playground') delete ups[k]; else ups[k] = parent; }
       return {
         ...d,
         devices: d.devices.filter((x) => x.id !== id),
         cfg: omit(d.cfg, (k) => !k.startsWith(`${id}-`)),
         positions: omit(d.positions, (k) => k !== id),
         uplinks: ups,
+        rules: omit(d.rules, (k) => k !== id),
       };
     });
     setOpenNode(null);
@@ -405,18 +485,35 @@ export default function App() {
 
   const setUplink = (child: NodeId, parent: NodeId) => {
     resetVisual();
+    if (free) {
+      if (parent && !canParent(topo, child, parent)) return;
+      set((d) => ({ ...d, uplinks: parent ? { ...d.uplinks, [child]: parent } : omit(d.uplinks, (k) => k !== child) }));
+      say(parent ? `${topoName(topo, child)} zapojeno k ${topoName(topo, parent)}` : `${topoName(topo, child)} odpojeno`);
+      return;
+    }
     set((d) => ({ ...d, uplinks: parent === 'r2' ? omit(d.uplinks, (k) => k !== child) : { ...d.uplinks, [child]: parent } }));
+  };
+
+  const setApMode = (id: NodeId, m: ApMode) => {
+    resetVisual();
+    set((d) => ({ ...d, devices: d.devices.map((x) => (x.id === id ? (m === 'ap' ? { id: x.id, kind: x.kind, name: x.name } : { ...x, apMode: m }) : x)) }));
+  };
+
+  const setIsp = (key: keyof IspConfig, value: string) => {
+    stopAnim();
+    setPacket(null);
+    set((d) => ({ ...d, isp: { ...d.isp, [key]: value } }), `isp:${key}`);
   };
 
   // --- pravidla PAT ---
   const addRule = (router: RouterId) => {
     set((d) => {
-      const max = [...d.rules.r1, ...d.rules.r2].reduce((m, r) => Math.max(m, Number(r.replace(/^n/, '')) || 0), 0);
+      const max = Object.values(d.rules).flat().reduce((m, r) => Math.max(m, Number(r.replace(/^n/, '')) || 0), 0);
       const id = `n${max + 1}`;
       return {
         ...d,
         cfg: { ...d.cfg, [`${router}-pat-${id}-ext`]: '', [`${router}-pat-${id}-ip`]: '', [`${router}-pat-${id}-port`]: '' },
-        rules: { ...d.rules, [router]: [...d.rules[router], id] },
+        rules: { ...d.rules, [router]: [...(d.rules[router] ?? []), id] },
       };
     });
   };
@@ -425,7 +522,7 @@ export default function App() {
     setPacket(null);
     set((d) => ({
       ...d,
-      rules: { ...d.rules, [router]: d.rules[router].filter((x) => x !== id) },
+      rules: { ...d.rules, [router]: (d.rules[router] ?? []).filter((x) => x !== id) },
       cfg: omit(d.cfg, (k) => !k.startsWith(`${router}-pat-${id}-`)),
     }));
   };
@@ -461,6 +558,19 @@ export default function App() {
     say(sc ? `Spuštěna úloha: ${sc.title.split(':')[0]}` : 'Spuštěno základní zadání');
   };
 
+  /** Volné plátno: jen ISP a hraniční router. Lze vrátit krokem Zpět. */
+  const startFree = () => {
+    resetRun('Připraveno k zadání');
+    setOpenNode(null);
+    set(() => playgroundDoc());
+    say('Volné plátno: ISP a hraniční router');
+  };
+  /** Obnovení plátna do původního stavu (volné plátno, nebo znovu spuštěná úloha). */
+  const resetCanvas = () => {
+    if (free) startFree();
+    else startTask(mode === 'scenario' ? scenario : null);
+  };
+
   const randomScenario = () => {
     const pool = SCENARIOS.filter((s) => s.title !== scenario?.title);
     startTask(pool[Math.floor(Math.random() * pool.length)]);
@@ -481,24 +591,34 @@ export default function App() {
     setLogs([{ type: 'info', title: 'Konfigurace vymazána', text: 'Všechna konfigurační pole byla vyčištěna. Můžete začít znovu (nebo krokem Zpět vše vrátit).' }]);
   };
 
-  /** „Dle R2“: doplní IP, masku, bránu a DNS klienta podle LAN portu Routeru 2 (volná adresa). */
+  /** „Dle R2“ / „Dle brány“: doplní IP, masku, bránu a DNS klienta podle LAN portu routeru, ke kterému je zapojený (volná adresa). */
   const autoFill = (id: NodeId) => {
-    const r2 = analyzeInterface(cfg['r2-lan-ip'] ?? '', cfg['r2-lan-mask'] ?? '', cidr);
+    const owner = free ? ownerOf(topo, id) : 'r2';
+    if (!owner || owner === 'isp') {
+      setLogs([{ type: 'error', title: 'Nelze automaticky vyplnit zařízení', text: 'Zařízení není zapojeno do LAN žádného routeru. Přetáhněte jeho kabel (tečka nahoře na kartě) na router, switch nebo AP.' }]);
+      setBadge({ text: 'Chyba předvyplnění', tone: 'error' });
+      return;
+    }
+    const rn = free ? topoName(topo, owner) : 'Routeru 2';
+    const r2 = analyzeInterface(cfg[`${owner}-lan-ip`] ?? '', cfg[`${owner}-lan-mask`] ?? '', cidr);
     if (!r2.valid || !r2.isHostUsable) {
-      setLogs([{ type: 'error', title: 'Nelze automaticky vyplnit zařízení', text: 'Nejprve zadejte platnou použitelnou IP adresu a masku na vnitřním rozhraní (LAN 2) Routeru 2.' }]);
+      setLogs([{ type: 'error', title: 'Nelze automaticky vyplnit zařízení', text: `Nejprve zadejte platnou použitelnou IP adresu a masku na vnitřním rozhraní (LAN) zařízení ${rn}.` }]);
       setBadge({ text: 'Chyba předvyplnění', tone: 'error' });
       return;
     }
     const used = new Set<number>([r2.ipLong]);
-    ['pc', ...devices.filter(hasIp).map((d) => d.id)].filter((x) => x !== id).forEach((x) => {
-      const v = ipToLong(cfg[`${x}-ip`] ?? '');
+    const fields = free
+      ? freeNodes(devices).filter((x) => x !== id && ownerOf(topo, x) === owner).map((x) => (kindOf(topo, x) === 'router' ? `${x}-wan-ip` : kindOf(topo, x) === 'ap' ? `${x}-lan-ip` : `${x}-ip`))
+      : ['pc', ...devices.filter(hasIp).map((d) => d.id)].filter((x) => x !== id).map((x) => `${x}-ip`);
+    fields.forEach((f) => {
+      const v = ipToLong(cfg[f] ?? '');
       if (v !== null) used.add(v);
     });
     let cand: number | null = null;
     for (let a = r2.networkLong + 10; a < r2.broadcastLong && cand === null; a++) if (!used.has(a)) cand = a;
     for (let a = r2.networkLong + 1; a < r2.broadcastLong && cand === null; a++) if (!used.has(a)) cand = a;
     if (cand === null) {
-      setLogs([{ type: 'error', title: 'Příliš malá podsíť na Routeru 2', text: 'V zadané podsíti nezbývá volná adresa pro další zařízení.' }]);
+      setLogs([{ type: 'error', title: `Příliš malá podsíť na zařízení ${rn}`, text: 'V zadané podsíti nezbývá volná adresa pro další zařízení.' }]);
       setBadge({ text: 'Chyba rozsahu', tone: 'error' });
       return;
     }
@@ -574,7 +694,12 @@ export default function App() {
     <>Nakonfigurujte zařízení (<strong>Router 1</strong>, <strong>Router 2</strong> a <strong>Klientské PC</strong>) tak, aby koncový počítač mohl komunikovat s internetem (cílový server <C>{isp.dnsIp}</C>). Vytvořte tři oddělené IP podsítě. Do plochy můžete přidat další PC, kamery, web servery, switche a Wi-Fi AP a zpřístupnit je z internetu pomocí PAT.</>
   );
   let chips: ReactNode = null;
-  if (mode === 'sample') {
+  if (free) {
+    title = 'Volné plátno – postavte si vlastní síť';
+    description = (
+      <>Na plátně je <strong>Internet / ISP</strong> a <strong>hraniční router</strong>. Přidávejte routery, switche, Wi-Fi AP (režim Access Point, Klient i Bridge), PC, kamery a servery. <strong>Kabely přetahujte za tečky</strong> nahoře a dole na kartách – i z jednoho zařízení na druhé. Potom nastavte adresy, DHCP a PAT a otestujte spojení. Hotové zadání si můžete zapnout v <strong>Úlohách</strong>.</>
+    );
+  } else if (mode === 'sample') {
     const p = makePlan(DEFAULT_ISP, null);
     title = 'Vzorové funkční zapojení (Double NAT)';
     description = (
@@ -599,12 +724,22 @@ export default function App() {
 
   const runButtons = (stacked: boolean) => (
     <div className={`flex gap-2 shrink-0 w-full lg:w-auto ${stacked ? 'flex-col' : ''}`}>
-      <button id="btn-run-test" onClick={() => runPing('pc')}
-        className="flex-1 lg:flex-none inline-flex items-center justify-center gap-2 px-6 py-3.5 text-base font-bold rounded-xl bg-blue-600 text-white hover:bg-blue-700 active:scale-[0.99] transition shadow-md shadow-blue-600/20">
+      {free && (
+        <label className={`flex items-center gap-3 text-sm font-semibold text-ink ${stacked ? 'w-full' : 'lg:self-center'}`}>
+          <span className="shrink-0">Testovat z:</span>
+          <select value={testSource ?? ''} onChange={(e) => setTestSrc(e.target.value)} disabled={!clients.length}
+            className="flex-1 min-w-0 w-full px-3 py-2.5 text-base font-medium border border-line-strong bg-surface text-ink rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500">
+            {!clients.length && <option value="">— přidejte PC —</option>}
+            {clients.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+        </label>
+      )}
+      <button id="btn-run-test" onClick={() => runPing(free ? testSource ?? undefined : 'pc')} disabled={free && !testSource}
+        className="flex-1 lg:flex-none inline-flex items-center justify-center gap-2 px-6 py-3.5 text-base font-bold rounded-xl bg-blue-600 text-white hover:bg-blue-700 active:scale-[0.99] transition shadow-md shadow-blue-600/20 disabled:opacity-50 disabled:cursor-not-allowed">
         <Play className="w-5 h-5 fill-current shrink-0" /> Otestovat připojení (Ping)
       </button>
-      <button id="btn-trace" onClick={runTrace} title="Traceroute z klientského PC k cílovému serveru – paket putuje hop po hopu"
-        className="inline-flex items-center justify-center gap-2 px-4 py-3 text-base font-bold rounded-xl border-2 border-blue-600 text-blue-700 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950/50 active:scale-[0.99] transition">
+      <button id="btn-trace" onClick={runTrace} disabled={free && !testSource} title="Traceroute k cílovému serveru – paket putuje hop po hopu"
+        className="inline-flex items-center justify-center gap-2 px-4 py-3 text-base font-bold rounded-xl border-2 border-blue-600 text-blue-700 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950/50 active:scale-[0.99] transition disabled:opacity-50 disabled:cursor-not-allowed">
         <Route className="w-5 h-5 shrink-0" /> Traceroute (hop po hopu)
       </button>
     </div>
@@ -616,6 +751,8 @@ export default function App() {
       <Header
         showCalc={showCalc}
         onToggleCalc={() => setShowCalc((v) => !v)}
+        free={free}
+        onFree={startFree}
         onWizard={() => setWizard(true)}
         onTasks={() => setTasks(true)}
         onRandom={randomScenario}
@@ -649,7 +786,7 @@ export default function App() {
           <div className="space-y-1.5">
             <div className="flex flex-wrap items-center gap-2">
               <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/50 px-2.5 py-0.5 rounded-md">
-                <ClipboardList className="w-3.5 h-3.5" /> Zadání úlohy
+                <ClipboardList className="w-3.5 h-3.5" /> {free ? 'Volné plátno' : 'Zadání úlohy'}
               </span>
               <span className="text-base font-semibold text-ink">{title}</span>
             </div>
@@ -659,7 +796,7 @@ export default function App() {
           {!wide && runButtons(false)}
         </section>
 
-        {!wide && <DevicePalette onAdd={(k) => addDevice(k)} onDrop={(k, x, y) => addDevice(k, { clientX: x, clientY: y })} layout="row" />}
+        {!wide && <DevicePalette free={free} onAdd={(k) => addDevice(k)} onDrop={(k, x, y) => addDevice(k, { clientX: x, clientY: y })} layout="row" />}
 
         <div className={wide ? 'grid grid-cols-[minmax(0,1fr)_22rem] gap-5 items-start' : 'space-y-5'}>
           <section className="bg-surface border border-line rounded-2xl p-3 sm:p-4 shadow-sm">
@@ -706,13 +843,19 @@ export default function App() {
               onTestPing={runPing}
               onTestInbound={runInbound}
               layout={layout}
+              mode={mode}
+              onIsp={setIsp}
+              onApMode={setApMode}
+              dhcpConflicts={dhcpConflicts}
+              onResetCanvas={resetCanvas}
+              onAutoLayout={autoLayout}
             />
           </section>
           {wide ? (
             <aside className="space-y-5 sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto pr-1 -mr-1">
               {runButtons(true)}
               {diag}
-              <DevicePalette onAdd={(k) => addDevice(k)} onDrop={(k, x, y) => addDevice(k, { clientX: x, clientY: y })} layout="column" />
+              <DevicePalette free={free} onAdd={(k) => addDevice(k)} onDrop={(k, x, y) => addDevice(k, { clientX: x, clientY: y })} layout="column" />
             </aside>
           ) : (
             diag
@@ -738,7 +881,7 @@ export default function App() {
         </div>
       </footer>
 
-      {tasks && <TaskPicker cidr={cidr} current={mode === 'scenario' && scenario ? scenario.title : mode === 'default' ? null : '·'} onStart={startTask} onClose={() => setTasks(false)} />}
+      {tasks && <TaskPicker cidr={cidr} current={free ? '·free' : mode === 'scenario' && scenario ? scenario.title : mode === 'default' ? null : '·'} onStart={startTask} onFree={startFree} onClose={() => setTasks(false)} />}
       {changelog && <ChangelogDialog onClose={() => setChangelog(false)} />}
 
       {toast && (
@@ -747,7 +890,7 @@ export default function App() {
         </div>
       )}
 
-      {wizard && (
+      {wizard && !free && (
         <Wizard
           cfg={cfg}
           isp={isp}

@@ -3,6 +3,24 @@
 Přehled verzí a změn. Zobrazuje se i v aplikaci (odkaz „Co je nového“ v patičce).
 Formát: `## verze – datum`, sekce `### Přidáno / Změněno / Opraveno`, položky jako odrážky.
 
+## 1.4.0 – 2026-11-16
+
+### Přidáno
+- **Volné plátno** (výchozí stav aplikace): jen Internet / ISP a hraniční router, zbytek si sestavíte sami – bez předvybrané úlohy. Úlohy se zapínají ručně v „Úlohách“, zpět na prázdné plátno vede tlačítko „Volné plátno“
+- Libovolná topologie: přidávání **routerů** (WAN + LAN, NAT, DHCP, PAT), switchů, Wi-Fi AP, PC, kamer a web serverů v libovolném počtu úrovní (třetí, čtvrtý … NAT); ISP lze upravit
+- **Konektory jako v n8n**: tečka nahoře (vstup) a dole (výstup) na každé kartě. Kabely se přetahují z jednoho zařízení na druhé; pustit kabel do prázdna ho odpojí. Zařízení puštěné z palety na jiné zařízení se tam rovnou zapojí, do prázdna zůstane nezapojené
+- Wi-Fi AP má režimy **Access Point**, **Klient** (síťovka pro jedno zařízení) a **Bridge** (bezdrátový most celé sítě); simulace hlídá, že Klient / Bridge je bezdrátově spojený s AP v režimu Access Point
+- **DHCP server** na každém routeru i na Wi-Fi AP (s upozorněním, že v jedné síti smí běžet jen jedno DHCP, a detekcí více serverů a překrývajících se rozsahů)
+- Ping, traceroute a přístup zvenku (PAT) fungují přes libovolný počet routerů; zdroj testu se vybírá v pravém sloupci
+- Ovládání plátna: **celá obrazovka**, **štětec** pro automatické uspořádání schématu do stromu a **obnovení plátna** do původního stavu (obojí s potvrzením)
+- Rychlé **odebrání zařízení přímo z karty** (koš v rohu, potvrzení přes celou kartu)
+
+### Změněno
+- Výchozí velikost písma je „Normální“
+- Užší boční panel: kompaktní diagnostika a dlaždice zařízení ve dvou sloupcích
+- Kalkulačka sítí přesunuta do Nastavení; „Nové zadání“ je spojené s tlačítkem „Úlohy“
+- Otevřená karta zařízení má ztmavený okraj místo vnějšího obrysu
+
 ## 1.3.0 – 2026-11-16
 
 ### Přidáno

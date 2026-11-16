@@ -20,9 +20,8 @@ export const emptyConfig = (): Config =>
 
 /** Kterému zařízení pole patří. */
 export function nodeOfField(id: FieldId): NodeId {
-  if (id.startsWith('r1-')) return 'r1';
-  if (id.startsWith('r2-')) return 'r2';
-  return id.replace(/-(ip|mask|gw|dns|pub|dhcp)$/, '');
+  const m = id.match(/^(dev-\d+|r1|r2|pc|isp)-/);
+  return m ? m[1] : id.replace(/-(ip|mask|gw|dns|pub|dhcp)$/, '');
 }
 
 export type LinkId = string; // `link-${dítě}-${rodič}`: 'link-r1-isp', 'link-r2-r1', 'link-pc-r2', 'link-dev-1-dev-3', …
@@ -32,19 +31,27 @@ export const linkId = (child: NodeId, parent: NodeId): LinkId => `link-${child}-
 export type Uplinks = Record<NodeId, NodeId>;
 
 export interface Pos { x: number; y: number }
-export type Mode = 'default' | 'sample' | 'scenario';
+/** default = základní zadání (R1 → R2 → PC), sample = vzorové řešení, scenario = úloha, playground = volné plátno */
+export type Mode = 'default' | 'sample' | 'scenario' | 'playground';
 
 // --- Přidaná zařízení v síti LAN 2 ---
-export type DeviceKind = 'pc' | 'camera' | 'webserver' | 'switch' | 'ap';
+export type DeviceKind = 'pc' | 'camera' | 'webserver' | 'switch' | 'ap' | 'router';
+
+/** Režim Wi-Fi AP: vysílač (Access Point), přijímač pro jedno zařízení (Klient) nebo bezdrátový most celé sítě (Bridge). */
+export type ApMode = 'ap' | 'client' | 'bridge';
+export const AP_MODES: ApMode[] = ['ap', 'client', 'bridge'];
 
 export interface Device {
   id: NodeId; // 'dev-1'…
   kind: DeviceKind;
   name: string;
+  /** jen AP: režim (výchozí 'ap') */
+  apMode?: ApMode;
 }
 
 export const KIND_INFO: Record<DeviceKind, { label: string; port?: number; service?: string }> = {
   pc: { label: 'PC' },
+  router: { label: 'Router' },
   switch: { label: 'Switch' },
   ap: { label: 'Wi-Fi AP' },
   camera: { label: 'Kamera', port: 554, service: 'RTSP' },
@@ -55,15 +62,20 @@ export const KIND_INFO: Record<DeviceKind, { label: string; port?: number; servi
 export const isServer = (d: Device) => d.kind === 'camera' || d.kind === 'webserver';
 /** Prvky vrstvy 2 (switch, AP) – nemají IP adresu, jen propojují. */
 export const isL2 = (d: { kind: DeviceKind }) => d.kind === 'switch' || d.kind === 'ap';
-/** Zařízení s IP konfigurací (PC, kamera, server). */
-export const hasIp = (d: { kind: DeviceKind }) => !isL2(d);
+/** Router přidaný do volného plátna (má WAN a LAN rozhraní). */
+export const isRouter = (d: { kind: DeviceKind }) => d.kind === 'router';
+/** Koncové zařízení s jednou IP konfigurací (PC, kamera, server). */
+export const hasIp = (d: { kind: DeviceKind }) => !isL2(d) && !isRouter(d);
+/** Pole routeru (WAN, LAN, DHCP) – `${id}-wan-ip` apod. */
+/** Pole Wi-Fi AP v režimu Access Point: vlastní adresa (správa) a volitelný DHCP server. */
+export const AP_SUFFIXES = ['lan-ip', 'lan-mask', 'dhcp-on', 'dhcp-start', 'dhcp-end', 'dhcp-gw', 'dhcp-dns'] as const;
+export const apModeOf = (d: { kind: DeviceKind; apMode?: ApMode }): ApMode => (d.kind === 'ap' ? d.apMode ?? 'ap' : 'ap');
+export const ROUTER_SUFFIXES = ['wan-ip', 'wan-mask', 'wan-gw', 'wan-dns', 'lan-ip', 'lan-mask', 'dhcp-on', 'dhcp-start', 'dhcp-end', 'dhcp-dns'] as const;
 
 // --- Pravidla PAT (přesměrování portů) na routerech ---
-export type RouterId = 'r1' | 'r2';
-export interface Rules {
-  r1: string[];
-  r2: string[];
-}
+export type RouterId = string; // 'r1' | 'r2' | 'dev-N' (router z volného plátna)
+/** Pravidla PAT podle routeru (klíč = id routeru). */
+export type Rules = Record<string, string[]>;
 export const emptyRules = (): Rules => ({ r1: [], r2: [] });
 export const ruleField = (router: RouterId, rule: string, part: 'ext' | 'ip' | 'port'): FieldId =>
   `${router}-pat-${rule}-${part}`;

@@ -25,7 +25,8 @@ Seznam nápadů na další funkce. Postupně je odbavujeme, doplňujeme a přeš
 |----|----------|------|-------|----------|
 | B-10 | 🟡 | nápad | **Rozšířená kalkulačka sítí** | Rozsah použitelných adres, počet hostů, převod masky ↔ prefix, binární zápis. Teď ukazuje jen síť a broadcast. |
 | B-13 | ⚪ | nápad | **Firewall pravidla** | Povolit / zakázat port; ukáže rozdíl „router přeloží“ × „router pustí“. |
-| B-14 | ⚪ | nápad | **Další zařízení** | Tiskárna a další koncová zařízení. Switch a Wi-Fi AP už jsou hotové (viz Hotovo). |
+| B-14 | ⚪ | nápad | **Další zařízení** | Tiskárna a další koncová zařízení. Switch, Wi-Fi AP i Router už jsou hotové (viz Hotovo). |
+| B-17 | 🟡 | nápad | **Volné plátno – rozšíření** | WAN routeru jako DHCP klient (adresa od nadřazeného routeru), statické trasy, propojení dvou sítí přes router (komunikace mezi LAN, ne jen do internetu), uložení vlastních „šablon“ sítí. |
 | B-15 | 🟡 | nápad | **VLSM úloha** | Rozdělit blok na podsítě podle počtu hostů („50, 20 a 10 stanic“), kontrola překryvů. |
 | B-16 | ⚪ | nápad | **ARP / MAC tabulka** | Doplněk k výkladu vrstvy 2. |
 
@@ -75,6 +76,7 @@ _nic_
 | 2026-11-16 | Changelog a číslo verze v aplikaci; vysvětlení tlačítka „Kalkulačka sítí“ |
 | 2026-11-16 | DHCP server na Routeru 2 a automatické získání adresy u zařízení (verze 1.3.0); úloha #7 |
 | 2026-11-16 | Přetahování nových zařízení z panelu přímo na plochu |
+| 2026-11-16 | Volné plátno: výchozí prázdné plátno (ISP + hraniční router), routery, libovolná topologie, přepojování kabelů tečkami, režimy AP (Access Point / Klient / Bridge), DHCP na routerech i AP, celá obrazovka, štětec a reset plátna, rychlé smazání z karty (verze 1.4.0) |
 
 ## Zamítnuto
 

@@ -1,15 +1,20 @@
 import { ArrowDown, Cloud, Globe, Monitor, Network, Plus, Router, Server, Trash2, Video, Wand2, Wifi, X } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { type DhcpResult } from '../lib/dhcp';
+import { serverLoc, type DhcpResult } from '../lib/dhcp';
 import Toggle from './Toggle';
 import { descendants } from '../lib/graph';
-import type { Config, Device, FieldId, IspConfig, NodeId, RouterId, Rules, Uplinks } from '../lib/model';
-import { FIXED_NODES, KIND_INFO, isL2, ruleField } from '../lib/model';
+import type { ApMode, Config, Device, DeviceKind, FieldId, IspConfig, NodeId, RouterId, Rules, Uplinks } from '../lib/model';
+import { AP_MODES, FIXED_NODES, KIND_INFO, apModeOf, isL2, isRouter, ruleField } from '../lib/model';
+import { canParent, freeNodes, nameOf as topoName, ownerOf } from '../lib/free';
 import { analyzeInterface, ipToLong, longToIp, parseSubnetMask } from '../lib/net';
 
-export const PANEL_WIDTH_REM = { isp: 22, router: 30, device: 30, l2: 23 } as const;
-export const panelWidthRem = (node: NodeId, isDevice: boolean, l2 = false) =>
-  node === 'isp' ? PANEL_WIDTH_REM.isp : node === 'r1' || node === 'r2' ? PANEL_WIDTH_REM.router : l2 ? PANEL_WIDTH_REM.l2 : isDevice ? PANEL_WIDTH_REM.device : PANEL_WIDTH_REM.device;
+export const PANEL_WIDTH_REM = { isp: 22, router: 30, device: 30, l2: 23, ap: 28 } as const;
+export const panelWidthRem = (node: NodeId, kind?: DeviceKind, free = false) =>
+  node === 'isp' ? (free ? 24 : PANEL_WIDTH_REM.isp)
+  : node === 'r1' || node === 'r2' || kind === 'router' ? PANEL_WIDTH_REM.router
+  : kind === 'ap' ? (free ? PANEL_WIDTH_REM.ap : PANEL_WIDTH_REM.l2)
+  : kind === 'switch' ? PANEL_WIDTH_REM.l2
+  : PANEL_WIDTH_REM.device;
 
 interface Common {
   cfg: Config;
@@ -37,6 +42,14 @@ export interface PanelProps extends Common {
   onUplink: (child: NodeId, parent: NodeId) => void;
   onTestPing: (id: NodeId) => void;
   onTestInbound: (id: NodeId) => void;
+  /** volné plátno */
+  free: boolean;
+  onIsp: (key: keyof IspConfig, value: string) => void;
+  onApMode: (id: NodeId, mode: ApMode) => void;
+  /** upozornění na více DHCP serverů v jedné síti (klíč = server) */
+  dhcpConflicts: Record<NodeId, string>;
+  /** router, kterým zařízení vychází do internetu (veřejná IP) */
+  topRouter: NodeId | null;
 }
 
 const FIXED_HEAD: Record<string, { bg: string; icon: ReactNode; title: string }> = {
@@ -50,10 +63,12 @@ export default function SetupPanel(p: PanelProps) {
   const dev = p.device;
   const head = dev
     ? {
-        bg: dev.kind === 'switch' ? 'bg-teal-900' : dev.kind === 'ap' ? 'bg-cyan-900' : dev.kind === 'camera' ? 'bg-violet-900' : dev.kind === 'webserver' ? 'bg-violet-900' : 'bg-slate-800 dark:bg-slate-700',
-        icon: dev.kind === 'switch' ? <Network className="w-5 h-5 text-teal-300" /> : dev.kind === 'ap' ? <Wifi className="w-5 h-5 text-cyan-300" /> : dev.kind === 'camera' ? <Video className="w-5 h-5 text-violet-300" /> : dev.kind === 'webserver' ? <Globe className="w-5 h-5 text-violet-300" /> : <Monitor className="w-5 h-5 text-emerald-400" />,
+        bg: dev.kind === 'router' ? 'bg-indigo-900' : dev.kind === 'switch' ? 'bg-teal-900' : dev.kind === 'ap' ? 'bg-cyan-900' : dev.kind === 'camera' ? 'bg-violet-900' : dev.kind === 'webserver' ? 'bg-violet-900' : 'bg-slate-800 dark:bg-slate-700',
+        icon: dev.kind === 'router' ? <Router className="w-5 h-5 text-indigo-300" /> : dev.kind === 'switch' ? <Network className="w-5 h-5 text-teal-300" /> : dev.kind === 'ap' ? <Wifi className="w-5 h-5 text-cyan-300" /> : dev.kind === 'camera' ? <Video className="w-5 h-5 text-violet-300" /> : dev.kind === 'webserver' ? <Globe className="w-5 h-5 text-violet-300" /> : <Monitor className="w-5 h-5 text-emerald-400" />,
         title: `Nastavení – ${dev.name}`,
       }
+    : p.free && p.node === 'r1' ? { ...FIXED_HEAD.r1, title: 'Nastavení – Hraniční router' }
+    : p.free && p.node === 'isp' ? { ...FIXED_HEAD.isp, title: 'Internet / ISP' }
     : FIXED_HEAD[p.node];
 
   return (
@@ -75,7 +90,7 @@ export default function SetupPanel(p: PanelProps) {
         </div>
       </div>
 
-      {p.node === 'isp' && <IspBody isp={p.isp} cidr={p.cidr} />}
+      {p.node === 'isp' && <IspBody isp={p.isp} cidr={p.cidr} free={p.free} onIsp={p.onIsp} />}
 
       {(p.node === 'r1' || p.node === 'r2') && <RouterBody {...p} router={p.node} />}
 
@@ -90,12 +105,19 @@ export default function SetupPanel(p: PanelProps) {
             <input id={`${dev.id}-name`} value={dev.name} onChange={(e) => p.onRename(dev.id, e.target.value)} maxLength={28}
               className="w-full px-3 py-2 text-base border border-line-strong bg-surface rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
-          {isL2(dev) ? (
+          {isRouter(dev) ? (
+            <>
+              <div className="px-4 py-3 bg-surface-2/50 border-b border-line">
+                <UplinkSelect nodeId={dev.id} {...p} />
+              </div>
+              <RouterBody {...p} router={dev.id} />
+            </>
+          ) : isL2(dev) ? (
             <L2Body {...p} device={dev} />
           ) : (
-            <ClientBody {...p} prefix={dev.id} title={`Ethernet (LAN 2) – ${KIND_INFO[dev.kind].label}`} />
+            <ClientBody {...p} prefix={dev.id} title={`Ethernet (${p.free ? 'LAN' : 'LAN 2'}) – ${KIND_INFO[dev.kind].label}`} />
           )}
-          {isL2(dev) ? null : dev.kind === 'pc' ? (
+          {isL2(dev) || isRouter(dev) ? null : dev.kind === 'pc' ? (
             <div className="px-4 pb-4 bg-emerald-50/50 dark:bg-emerald-950/30">
               <button type="button" onClick={() => p.onTestPing(dev.id)} className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-base font-bold transition">
                 Ping do internetu z tohoto PC
@@ -112,9 +134,24 @@ export default function SetupPanel(p: PanelProps) {
 
 // ----------------------------------------------------------------------------
 
-function IspBody({ isp, cidr }: { isp: IspConfig; cidr: boolean }) {
+function IspBody({ isp, cidr, free, onIsp }: { isp: IspConfig; cidr: boolean; free: boolean; onIsp: (key: keyof IspConfig, value: string) => void }) {
   const m = parseSubnetMask(isp.gwMask, true);
   const maskText = m ? (cidr ? `/${m.prefix} (${m.maskStr})` : m.maskStr) : isp.gwMask;
+  if (free) {
+    const f = (key: keyof IspConfig, label: string) => (
+      <Field key={key} id={`isp-${key}`} label={label} value={isp[key]} onChange={(v) => onIsp(key, v)} error={false} ring="focus:ring-sky-500" />
+    );
+    return (
+      <div className="p-4 space-y-3 bg-sky-50/40 dark:bg-sky-950/30">
+        {f('gwIp', 'IP brány ISP (Gateway)')}
+        {f('gwMask', 'Maska podsítě ISP')}
+        {f('dnsIp', 'Veřejný DNS / cíl Ping')}
+        <p className="text-sm text-ink-2 bg-surface border border-line rounded-lg p-2.5 leading-snug">
+          Parametry poskytovatele můžete upravit. <strong>WAN port hraničního routeru</strong> musí mít adresu ze stejné podsítě jako brána ISP.
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="p-4 space-y-3 bg-sky-50/40 dark:bg-sky-950/30">
       <Readonly label="IP brány ISP (Gateway)" value={isp.gwIp} />
@@ -207,69 +244,85 @@ function RouterBody(p: PanelProps & { router: RouterId }) {
   const r = p.router;
   const wan = fieldMaker(p, 'wan'), lan = fieldMaker(p, 'lan');
   const id = (part: string) => `${r}-${part}`;
+  const dhcp = p.free || r === 'r2';
   return (
     <div>
-      <Section tone="wan" step={1} title="WAN – vnější strana" side={r === 'r1' ? '↑ k ISP' : '↑ k Routeru 1'}>
+      <Section tone="wan" step={1} title="WAN – vnější strana" side={p.free ? (r === 'r1' ? '↑ k ISP' : '↑ k nadřazené síti') : r === 'r1' ? '↑ k ISP' : '↑ k Routeru 1'}>
         <div className={grid2}>{wan(id('wan-ip'), 'IPv4 adresa')}{wan(id('wan-mask'), 'Maska podsítě', true)}</div>
         <div className={grid2}>{wan(id('wan-gw'), 'Výchozí brána')}{wan(id('wan-dns'), 'DNS server')}</div>
         {p.showCalc && <Calc ip={p.cfg[id('wan-ip')] ?? ''} mask={p.cfg[id('wan-mask')] ?? ''} cidr={p.cidr} />}
       </Section>
       <Flow label="router směruje" />
-      <Section tone="lan" step={2} title={r === 'r1' ? 'LAN 1 – vnitřní strana' : 'LAN 2 – vnitřní strana'} side={r === 'r1' ? '↓ k Routeru 2' : '↓ k zařízením'}>
+      <Section tone="lan" step={2} title={p.free ? 'LAN – vnitřní strana' : r === 'r1' ? 'LAN 1 – vnitřní strana' : 'LAN 2 – vnitřní strana'} side={p.free ? '↓ k zařízením' : r === 'r1' ? '↓ k Routeru 2' : '↓ k zařízením'}>
         <div className={grid2}>{lan(id('lan-ip'), 'IPv4 adresa')}{lan(id('lan-mask'), 'Maska podsítě', true)}</div>
         {p.showCalc && <Calc ip={p.cfg[id('lan-ip')] ?? ''} mask={p.cfg[id('lan-mask')] ?? ''} cidr={p.cidr} />}
       </Section>
-      {r === 'r2' && (
+      {dhcp && (
         <>
-          <Flow label="služby pro klienty v LAN 2" />
-          <DhcpSection {...p} />
+          <Flow label="služby pro klienty v LAN" />
+          <DhcpSection {...p} router={r} />
         </>
       )}
       <Flow label="z internetu dovnitř" />
-      <PatSection {...p} router={r} step={r === 'r2' ? 4 : 3} />
+      <PatSection {...p} router={r} step={dhcp ? 4 : 3} />
     </div>
   );
 }
 
-/** DHCP server na Routeru 2: klientům v LAN 2 přiděluje adresu, masku, bránu a DNS. */
-function DhcpSection(p: PanelProps) {
-  const on = (p.cfg['r2-dhcp-on'] ?? '') === '1';
-  const lan = analyzeInterface(p.cfg['r2-lan-ip'] ?? '', p.cfg['r2-lan-mask'] ?? '', p.cidr);
-  const f = fieldMaker(p, 'dhcp');
-  const toggle = (checked: boolean) => {
-    if (!checked) { p.onFill({ 'r2-dhcp-on': '' }); return; }
-    const v: Partial<Config> = { 'r2-dhcp-on': '1' };
-    // předvyplnění rozumného rozsahu a DNS (jen když je prázdné)
-    if (lan.valid && !(p.cfg['r2-dhcp-start'] ?? '').trim() && !(p.cfg['r2-dhcp-end'] ?? '').trim()) {
-      const hosts = lan.broadcastLong - lan.networkLong - 1;
-      const first = lan.networkLong + (hosts >= 160 ? 100 : 10);
-      const last = Math.min(first + (hosts >= 160 ? 50 : 20), lan.broadcastLong - 1);
-      v['r2-dhcp-start'] = longToIp(first);
-      v['r2-dhcp-end'] = longToIp(last);
-    }
-    if (!(p.cfg['r2-dhcp-dns'] ?? '').trim()) v['r2-dhcp-dns'] = p.isp.dnsIp;
-    p.onFill(v);
-  };
-  const s = ipToLong(p.cfg['r2-dhcp-start'] ?? ''), e = ipToLong(p.cfg['r2-dhcp-end'] ?? '');
-  const count = s !== null && e !== null && e >= s ? e - s + 1 : null;
-  const err = p.errorFields.has('r2-dhcp-on');
+/** Zapnutí DHCP serveru s rozumným předvyplněním rozsahu a DNS. `gwField` = AP (brána pro klienty se zadává ručně). */
+function dhcpToggle(p: PanelProps, srv: string, checked: boolean, gwDefault?: string) {
+  if (!checked) { p.onFill({ [`${srv}-dhcp-on`]: '' }); return; }
+  const lan = analyzeInterface(p.cfg[`${srv}-lan-ip`] ?? '', p.cfg[`${srv}-lan-mask`] ?? '', p.cidr);
+  const v: Partial<Config> = { [`${srv}-dhcp-on`]: '1' };
+  if (lan.valid && !(p.cfg[`${srv}-dhcp-start`] ?? '').trim() && !(p.cfg[`${srv}-dhcp-end`] ?? '').trim()) {
+    const hosts = lan.broadcastLong - lan.networkLong - 1;
+    const first = lan.networkLong + (hosts >= 160 ? 100 : 10);
+    const last = Math.min(first + (hosts >= 160 ? 50 : 20), lan.broadcastLong - 1);
+    v[`${srv}-dhcp-start`] = longToIp(first);
+    v[`${srv}-dhcp-end`] = longToIp(last);
+  }
+  if (!(p.cfg[`${srv}-dhcp-dns`] ?? '').trim()) v[`${srv}-dhcp-dns`] = p.isp.dnsIp;
+  if (gwDefault && !(p.cfg[`${srv}-dhcp-gw`] ?? '').trim()) v[`${srv}-dhcp-gw`] = gwDefault;
+  p.onFill(v);
+}
+
+/** Upozornění, že v jedné síti smí běžet jen jedno DHCP (amber = nápověda, ne chyba). */
+function DhcpWarn({ text, strong }: { text?: string; strong?: boolean }) {
   return (
-    <Section tone="dhcp" step={3} title="DHCP server (LAN 2)" side="↓ pro klienty">
-      <div id="box-r2-dhcp-on" className={`flex items-center gap-3 rounded-lg p-1.5 ${err ? 'ring-2 ring-rose-400 bg-rose-50 dark:bg-rose-950/50 dark:bg-rose-950/40' : ''}`}>
-        <Toggle checked={on} onChange={toggle} label="DHCP server" onColor="bg-teal-600" />
+    <p className={`text-xs leading-snug rounded-lg px-3 py-2 border ${strong ? 'bg-amber-100 dark:bg-amber-900/50 dark:bg-amber-900/40 border-amber-400 dark:border-amber-600' : 'bg-amber-50 dark:bg-amber-950/50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700'} text-amber-900 dark:text-amber-100`}>
+      <strong>Pozor:</strong> {text ?? 'v jedné síti držte jen jedno DHCP – nebo si pohlídejte, aby se rozsahy neprotínaly.'}
+    </p>
+  );
+}
+
+/** DHCP server na routeru: klientům v jeho LAN přiděluje adresu, masku, bránu a DNS. */
+function DhcpSection(p: PanelProps & { router: RouterId }) {
+  const r = p.router;
+  const on = (p.cfg[`${r}-dhcp-on`] ?? '') === '1';
+  const lan = analyzeInterface(p.cfg[`${r}-lan-ip`] ?? '', p.cfg[`${r}-lan-mask`] ?? '', p.cidr);
+  const f = fieldMaker(p, 'dhcp');
+  const s = ipToLong(p.cfg[`${r}-dhcp-start`] ?? ''), e = ipToLong(p.cfg[`${r}-dhcp-end`] ?? '');
+  const count = s !== null && e !== null && e >= s ? e - s + 1 : null;
+  const err = p.errorFields.has(`${r}-dhcp-on`);
+  const conflict = p.dhcpConflicts[r];
+  return (
+    <Section tone="dhcp" step={3} title={p.free ? 'DHCP server (LAN)' : 'DHCP server (LAN 2)'} side="↓ pro klienty">
+      <div id={`box-${r}-dhcp-on`} className={`flex items-center gap-3 rounded-lg p-1.5 ${err ? 'ring-2 ring-rose-400 bg-rose-50 dark:bg-rose-950/50' : ''}`}>
+        <Toggle checked={on} onChange={(c) => dhcpToggle(p, r, c)} label="DHCP server" onColor="bg-teal-600" />
         <div className="text-sm text-ink leading-snug">
           <strong className="block text-ink">DHCP server {on ? 'zapnutý' : 'vypnutý'}</strong>
-          Zařízení v LAN 2 s volbou „DHCP“ dostanou adresu z rozsahu automaticky.
+          Zařízení v LAN s volbou „DHCP“ dostanou adresu z rozsahu automaticky.
         </div>
       </div>
       {on && (
         <>
-          <div className={grid2}>{f('r2-dhcp-start', 'Začátek rozsahu')}{f('r2-dhcp-end', 'Konec rozsahu')}</div>
-          {f('r2-dhcp-dns', 'DNS server pro klienty')}
+          <div className={grid2}>{f(`${r}-dhcp-start`, 'Začátek rozsahu')}{f(`${r}-dhcp-end`, 'Konec rozsahu')}</div>
+          {f(`${r}-dhcp-dns`, 'DNS server pro klienty')}
           <p className="text-xs text-ink-2 leading-snug bg-surface/80 border border-line rounded-lg px-3 py-2">
             {count !== null ? <>Rozsah má <strong>{count}</strong> adres. </> : null}
             Maska a výchozí brána se klientům předají automaticky z LAN rozhraní (adresa routeru <span className="font-mono">{lan.valid ? lan.ipStr : '—'}</span>).
           </p>
+          {conflict && <DhcpWarn text={conflict} strong />}
         </>
       )}
     </Section>
@@ -278,7 +331,7 @@ function DhcpSection(p: PanelProps) {
 
 function PatSection(p: PanelProps & { router: RouterId; step: number }) {
   const r = p.router;
-  const ids = p.rules[r];
+  const ids = p.rules[r] ?? [];
   return (
     <Section
       tone="pat"
@@ -291,9 +344,11 @@ function PatSection(p: PanelProps & { router: RouterId; step: number }) {
       }
     >
       <p className="text-xs text-ink-2 leading-snug">
-        {r === 'r1'
-          ? 'Příchozí spojení na veřejnou IP:port přesměruj na WAN adresu Routeru 2.'
-          : 'Příchozí spojení na tento port přesměruj na zařízení v LAN 2 (IP a port služby).'}
+        {p.free
+          ? 'Příchozí spojení na tento port přesměruj na zařízení v LAN, nebo na WAN adresu dalšího routeru za tímto (IP a port).'
+          : r === 'r1'
+            ? 'Příchozí spojení na veřejnou IP:port přesměruj na WAN adresu Routeru 2.'
+            : 'Příchozí spojení na tento port přesměruj na zařízení v LAN 2 (IP a port služby).'}
       </p>
       {ids.length === 0 ? (
         <div className="text-sm text-ink-4 italic border border-dashed border-violet-300 dark:border-violet-700 rounded-lg px-3 py-3 text-center">Žádné pravidlo – příchozí spojení se zahodí.</div>
@@ -339,13 +394,13 @@ function ClientBody(p: PanelProps & { prefix: string; title: string }) {
       tone="lan"
       title={p.title}
       action={
-        <button type="button" onClick={() => p.onAutoFill(p.prefix)} title="Doplní IP, masku, bránu a DNS podle LAN portu Routeru 2"
+        <button type="button" onClick={() => p.onAutoFill(p.prefix)} title={p.free ? 'Doplní IP, masku, bránu a DNS podle LAN portu routeru, ke kterému je zařízení zapojené' : 'Doplní IP, masku, bránu a DNS podle LAN portu Routeru 2'}
           className="text-xs bg-surface hover:bg-emerald-100 dark:hover:bg-emerald-900/50 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700 px-2 py-1 rounded-md font-semibold transition flex items-center gap-1">
-          <Wand2 className="w-3.5 h-3.5" /> Dle R2
+          <Wand2 className="w-3.5 h-3.5" /> {p.free ? 'Dle brány' : 'Dle R2'}
         </button>
       }
     >
-      <UplinkSelect nodeId={p.prefix} devices={p.devices} uplinks={p.uplinks} onUplink={p.onUplink} />
+      <UplinkSelect nodeId={p.prefix} {...p} />
       <div>
         <div className="block text-sm font-semibold text-ink mb-1">Získání adresy</div>
         <div className="grid grid-cols-2 gap-1.5" role="group" aria-label="Způsob získání adresy">
@@ -362,7 +417,7 @@ function ClientBody(p: PanelProps & { prefix: string; title: string }) {
           {lease ? (
             <>
               <div className="rounded-lg border border-teal-300 dark:border-teal-700 bg-teal-50/70 dark:bg-teal-950/30 dark:bg-teal-950/40 px-3 py-2 text-sm text-ink">
-                <div className="font-bold text-ink mb-1">✓ Adresu přidělil DHCP server na Routeru 2</div>
+                <div className="font-bold text-ink mb-1">✓ Adresu přidělil DHCP server na {serverLoc(lease.server ?? 'r2', p.devices)}</div>
                 <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 font-mono">
                   <dt className="text-ink-3 font-sans">IP</dt><dd className="font-bold text-ink">{lease.ip}</dd>
                   <dt className="text-ink-3 font-sans">Maska</dt><dd>{leaseMask}</dd>
@@ -375,7 +430,7 @@ function ClientBody(p: PanelProps & { prefix: string; title: string }) {
           ) : (
             <div className="rounded-lg border border-rose-300 dark:border-rose-700 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/50 dark:bg-rose-950/40 px-3 py-2 text-sm text-rose-900 dark:text-rose-100 dark:text-rose-200">
               <div className="font-bold mb-0.5">Zařízení zatím nemá adresu</div>
-              {problem ? problem.text : 'DHCP server na Routeru 2 není nastaven.'}
+              {problem ? problem.text : p.free ? 'V této síti není zapnutý žádný DHCP server.' : 'DHCP server na Routeru 2 není nastaven.'}
             </div>
           )}
         </div>
@@ -390,8 +445,25 @@ function ClientBody(p: PanelProps & { prefix: string; title: string }) {
   );
 }
 
-/** Výběr, k čemu je zařízení připojeno: Router 2, nebo některý switch / AP (bez cyklů). */
-function UplinkSelect({ nodeId, devices, uplinks, onUplink }: { nodeId: NodeId; devices: Device[]; uplinks: Uplinks; onUplink: (child: NodeId, parent: NodeId) => void }) {
+/** Výběr, k čemu je zařízení připojeno. V úlohách Router 2 nebo switch / AP; ve volném plátně libovolný přípustný uzel nebo „nezapojeno“. */
+function UplinkSelect(p: { nodeId: NodeId; devices: Device[]; uplinks: Uplinks; onUplink: (child: NodeId, parent: NodeId) => void; free: boolean }) {
+  const { nodeId, devices, uplinks, onUplink } = p;
+  if (p.free) {
+    const t = { devices, uplinks };
+    const options = freeNodes(devices).filter((n) => canParent(t, nodeId, n));
+    const cur = uplinks[nodeId] ?? '';
+    const value = cur === '' || options.includes(cur) ? cur : '';
+    return (
+      <div>
+        <label htmlFor={`${nodeId}-uplink`} className="block text-sm font-semibold text-ink mb-1">Připojeno k <span className="font-normal text-ink-3">(nebo přetáhněte kabel v schématu)</span></label>
+        <select id={`${nodeId}-uplink`} value={value} onChange={(e) => onUplink(nodeId, e.target.value)}
+          className="w-full px-3 py-2 text-base border border-line-strong bg-surface text-ink rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer">
+          <option value="">— nezapojeno —</option>
+          {options.map((n) => <option key={n} value={n}>{topoName(t, n)}</option>)}
+        </select>
+      </div>
+    );
+  }
   const all = [...FIXED_NODES, ...devices.map((d) => d.id)];
   const below = descendants(uplinks, all, nodeId);
   const options = devices.filter((d) => isL2(d) && d.id !== nodeId && !below.includes(d.id));
@@ -413,29 +485,92 @@ function UplinkSelect({ nodeId, devices, uplinks, onUplink }: { nodeId: NodeId; 
   );
 }
 
-/** Switch / AP: bez IP konfigurace, jen propojují. */
+const AP_MODE_INFO: Record<ApMode, { label: string; text: string }> = {
+  ap: { label: 'Access Point', text: 'Vysílá Wi-Fi. Zařízení se k němu připojí bezdrátově (v schématu čárkovaně), samotné AP se zapojí kabelem.' },
+  client: { label: 'Klient', text: 'Připojí se bezdrátově k jinému AP a funguje jako Wi-Fi síťovka pro jedno kabelem připojené zařízení (PC, router…).' },
+  bridge: { label: 'Bridge', text: 'Bezdrátový most: spojí se s jiným AP a propojí celou kabelovou síť za sebou do stejné podsítě (vrstva 2, bez směrování).' },
+};
+
+/** Switch / AP: bez IP konfigurace, jen propojují. Wi-Fi AP ve volném plátně má režimy a volitelný DHCP server. */
 function L2Body(p: PanelProps & { device: Device }) {
   const d = p.device;
-  const all = [...FIXED_NODES, ...p.devices.map((x) => x.id)];
-  const children = all.filter((n) => (p.uplinks[n] ?? 'r2') === d.id && n !== d.id);
+  const t = { devices: p.devices, uplinks: p.uplinks };
+  const all = p.free ? freeNodes(p.devices) : [...FIXED_NODES, ...p.devices.map((x) => x.id)];
+  const parent = (n: NodeId) => p.uplinks[n] ?? (p.free ? '' : 'r2');
+  const children = all.filter((n) => parent(n) === d.id && n !== d.id);
   const nameOf = (id: NodeId) => (id === 'pc' ? 'Klientské PC' : p.devices.find((x) => x.id === id)?.name ?? id);
+  const mode = apModeOf(d);
   return (
-    <div className="p-4 space-y-3 bg-teal-50/50 dark:bg-teal-950/30">
-      <UplinkSelect nodeId={d.id} devices={p.devices} uplinks={p.uplinks} onUplink={p.onUplink} />
-      <p className="text-sm text-ink-2 leading-snug bg-surface/80 border border-line rounded-lg p-2.5">
-        {d.kind === 'switch'
-          ? 'Switch pracuje na vrstvě 2 – nemá IP adresu a jen propojuje zařízení ve stejné podsíti. Ostatní zařízení k němu připojíte v jejich nastavení v poli „Připojeno k“.'
-          : 'Wi-Fi AP propojuje bezdrátová zařízení do stejné podsítě (LAN 2), sám nemá IP konfiguraci. Zařízení se k němu připojí v poli „Připojeno k“ (v schématu čárkovaně).'}
-      </p>
-      <div className="text-sm">
-        <div className="text-xs font-semibold text-ink-3 uppercase tracking-wide mb-1">Připojená zařízení ({children.length})</div>
-        {children.length ? (
-          <ul className="space-y-1">{children.map((c) => <li key={c} className="font-mono text-ink">• {nameOf(c)}</li>)}</ul>
-        ) : (
-          <div className="text-ink-4 italic">Zatím nic.</div>
+    <div className="space-y-0 bg-teal-50/50 dark:bg-teal-950/30">
+      <div className="p-4 space-y-3">
+        <UplinkSelect nodeId={d.id} {...p} />
+        {p.free && d.kind === 'ap' && (
+          <div>
+            <div className="block text-sm font-semibold text-ink mb-1">Režim AP</div>
+            <div className="grid grid-cols-3 gap-1.5" role="group" aria-label="Režim AP">
+              {AP_MODES.map((m) => (
+                <button key={m} type="button" onClick={() => p.onApMode(d.id, m)}
+                  className={`px-2 py-2 rounded-lg border text-sm font-semibold transition ${mode === m ? 'bg-cyan-600 border-cyan-600 text-white' : 'bg-surface border-line-strong text-ink hover:bg-surface-2'}`}>
+                  {AP_MODE_INFO[m].label}
+                </button>
+              ))}
+            </div>
+            <p className="text-sm text-ink-2 leading-snug bg-surface/80 border border-line rounded-lg p-2.5 mt-2">
+              <strong>{AP_MODE_INFO[mode].label}:</strong> {AP_MODE_INFO[mode].text}
+              {mode !== 'ap' && <> Zapojte ho k AP v režimu <strong>Access Point</strong>; zařízení za ním se připojují kabelem.</>}
+            </p>
+          </div>
         )}
+        {!(p.free && d.kind === 'ap') && (
+          <p className="text-sm text-ink-2 leading-snug bg-surface/80 border border-line rounded-lg p-2.5">
+            {d.kind === 'switch'
+              ? 'Switch pracuje na vrstvě 2 – nemá IP adresu a jen propojuje zařízení ve stejné podsíti. Zařízení k němu připojíte tažením kabelu (tečka dole na kartě) nebo v jejich nastavení v poli „Připojeno k“.'
+              : 'Wi-Fi AP propojuje bezdrátová zařízení do stejné podsítě, sám nemá IP konfiguraci. Zařízení se k němu připojí v poli „Připojeno k“ (v schématu čárkovaně).'}
+          </p>
+        )}
+        <div className="text-sm">
+          <div className="text-xs font-semibold text-ink-3 uppercase tracking-wide mb-1">Připojená zařízení ({children.length})</div>
+          {children.length ? (
+            <ul className="space-y-1">{children.map((c) => <li key={c} className="font-mono text-ink">• {nameOf(c)}</li>)}</ul>
+          ) : (
+            <div className="text-ink-4 italic">Zatím nic.</div>
+          )}
+        </div>
       </div>
+      {p.free && d.kind === 'ap' && mode === 'ap' && <ApDhcp {...p} device={d} owner={ownerOf(t, d.id)} />}
     </div>
+  );
+}
+
+/** DHCP server na Wi-Fi AP: potřebuje vlastní adresu v síti a ručně zadanou bránu (adresu routeru). */
+function ApDhcp(p: PanelProps & { device: Device; owner: NodeId | null }) {
+  const id = p.device.id;
+  const on = (p.cfg[`${id}-dhcp-on`] ?? '') === '1';
+  const f = fieldMaker(p, 'dhcp');
+  const ownerLan = p.owner && p.owner !== 'isp' ? analyzeInterface(p.cfg[`${p.owner}-lan-ip`] ?? '', p.cfg[`${p.owner}-lan-mask`] ?? '', p.cidr) : null;
+  const err = p.errorFields.has(`${id}-dhcp-on`);
+  const conflict = p.dhcpConflicts[id];
+  return (
+    <Section tone="dhcp" title="DHCP server na AP" side="volitelné">
+      <div id={`box-${id}-dhcp-on`} className={`flex items-center gap-3 rounded-lg p-1.5 ${err ? 'ring-2 ring-rose-400 bg-rose-50 dark:bg-rose-950/50' : ''}`}>
+        <Toggle checked={on} onChange={(c) => dhcpToggle(p, id, c, ownerLan?.valid ? ownerLan.ipStr : undefined)} label="DHCP server na AP" onColor="bg-teal-600" />
+        <div className="text-sm text-ink leading-snug">
+          <strong className="block text-ink">DHCP server {on ? 'zapnutý' : 'vypnutý'}</strong>
+          AP přiděluje adresy klientům ve své síti.
+        </div>
+      </div>
+      <DhcpWarn text={conflict} strong={!!conflict} />
+      {on && (
+        <>
+          <div className={grid2}>{f(`${id}-lan-ip`, 'IP adresa AP')}{f(`${id}-lan-mask`, 'Maska podsítě', true)}</div>
+          <div className={grid2}>{f(`${id}-dhcp-start`, 'Začátek rozsahu')}{f(`${id}-dhcp-end`, 'Konec rozsahu')}</div>
+          <div className={grid2}>{f(`${id}-dhcp-gw`, 'Brána pro klienty')}{f(`${id}-dhcp-dns`, 'DNS server pro klienty')}</div>
+          <p className="text-xs text-ink-2 leading-snug bg-surface/80 border border-line rounded-lg px-3 py-2">
+            Brána pro klienty je adresa routeru v této síti{ownerLan?.valid ? <> (teď <span className="font-mono">{ownerLan.ipStr}</span>)</> : null}. AP musí mít adresu ze stejné podsítě a mimo rozsah DHCP.
+          </p>
+        </>
+      )}
+    </Section>
   );
 }
 
@@ -444,7 +579,8 @@ function ServiceSection(p: PanelProps & { device: Device }) {
   const info = KIND_INFO[d.kind];
   const svc = fieldMaker(p, 'svc');
   const pub = (p.cfg[`${d.id}-pub`] ?? '').trim();
-  const wanIp = analyzeInterface(p.cfg['r1-wan-ip'] ?? '', p.cfg['r1-wan-mask'] ?? '', p.cidr);
+  const topId = p.free ? p.topRouter : 'r1';
+  const wanIp = topId ? analyzeInterface(p.cfg[`${topId}-wan-ip`] ?? '', p.cfg[`${topId}-wan-mask`] ?? '', p.cidr) : { valid: false as const };
   const url = `${d.kind === 'camera' ? 'rtsp' : 'http'}://${wanIp.valid ? wanIp.ipStr : '<veřejná IP>'}:${pub || '<port>'}`;
   return (
     <Section tone="svc" title="Služba a přístup z internetu">

@@ -1,4 +1,4 @@
-import { Globe, Monitor, Network, Plus, Video, Wifi } from 'lucide-react';
+import { Globe, Monitor, Network, Plus, Router, Video, Wifi } from 'lucide-react';
 import { useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { DeviceKind } from '../lib/model';
@@ -13,6 +13,11 @@ interface Item {
 }
 
 const ITEMS: Item[] = [
+  {
+    kind: 'router', title: 'Router', sub: 'WAN + LAN, NAT, DHCP, PAT', icon: <Router className="w-6 h-6" />,
+    tile: 'border-indigo-300 dark:border-indigo-700 hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-950/50',
+    badge: 'bg-indigo-600 text-white',
+  },
   {
     kind: 'pc', title: 'PC', sub: 'Koncová stanice, ping do internetu', icon: <Monitor className="w-6 h-6" />,
     tile: 'border-line-strong dark:border-slate-600 hover:border-slate-500 hover:bg-surface-3 dark:hover:bg-slate-700/60',
@@ -46,10 +51,13 @@ interface PaletteProps {
   /** přetažení na plochu: zařízení se přidá na místo puštění */
   onDrop: (kind: DeviceKind, clientX: number, clientY: number) => void;
   layout: 'column' | 'row';
+  /** volné plátno: navíc dlaždice Router a jiný popis připojování */
+  free?: boolean;
 }
 
 /** Dlaždice pro přidání zařízení do plochy: klik nebo přetažení myší / prstem přímo na plochu. */
-export default function DevicePalette({ onAdd, onDrop, layout }: PaletteProps) {
+export default function DevicePalette({ onAdd, onDrop, layout, free = false }: PaletteProps) {
+  const items = free ? ITEMS : ITEMS.filter((it) => it.kind !== 'router');
   const [drag, setDrag] = useState<{ item: Item; x: number; y: number; over: boolean } | null>(null);
   const start = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const suppress = useRef(false);
@@ -65,15 +73,17 @@ export default function DevicePalette({ onAdd, onDrop, layout }: PaletteProps) {
   };
 
   return (
-    <section className="bg-surface border border-line rounded-2xl p-4 shadow-sm" aria-label="Přidat zařízení do plochy">
-      <h2 className="text-lg font-bold text-ink flex items-center gap-2">
-        <Plus className="w-5 h-5 text-blue-600 dark:text-blue-400" /> Přidat do plochy
+    <section className="bg-surface border border-line rounded-2xl p-3 shadow-sm" aria-label="Přidat zařízení do plochy">
+      <h2 className="text-base font-bold text-ink flex items-center gap-1.5">
+        <Plus className="w-4 h-4 text-blue-600 dark:text-blue-400" /> Přidat do plochy
       </h2>
-      <p className="text-sm text-ink-3 mt-0.5 mb-3">
-        Klikněte, nebo zařízení <strong>přetáhněte</strong> na plochu. Puštění na switch či AP ho k němu rovnou připojí.
+      <p className="text-xs text-ink-3 mt-0.5 mb-2">
+        {free
+          ? <>Klikněte (připojí se k otevřenému zařízení, jinak k hraničnímu routeru), nebo <strong>přetáhněte</strong> na plochu – puštění na zařízení ho tam rovnou zapojí, do prázdna zůstane nezapojené.</>
+          : <>Klikněte, nebo zařízení <strong>přetáhněte</strong> na plochu. Puštění na switch či AP ho k němu rovnou připojí.</>}
       </p>
-      <div className={layout === 'column' ? 'grid grid-cols-1 gap-2.5' : 'grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-2.5'}>
-        {ITEMS.map((it) => (
+      <div className={layout === 'column' ? 'grid grid-cols-2 gap-2' : 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2'}>
+        {items.map((it) => (
           <button
             key={it.kind}
             type="button"
@@ -108,18 +118,15 @@ export default function DevicePalette({ onAdd, onDrop, layout }: PaletteProps) {
               setDrag(null);
             }}
             onPointerCancel={() => { start.current = null; markCanvas(false); setDrag(null); }}
-            className={`group flex items-center gap-3 text-left p-3 rounded-xl border-2 bg-surface shadow-sm cursor-grab select-none
+            className={`group flex items-center gap-2 text-left p-2 rounded-xl border-2 bg-surface shadow-sm cursor-grab select-none
               transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 active:cursor-grabbing
               focus-visible:outline-3 focus-visible:outline-blue-400 ${it.tile}`}
-            title="Klik = přidat · tažení = přidat na vybrané místo plochy"
+            title={`${it.sub} · klik = přidat, tažení = přidat na vybrané místo plochy`}
           >
-            <span className={`shrink-0 w-11 h-11 rounded-lg flex items-center justify-center shadow-sm ${it.badge}`}>{it.icon}</span>
+            <span className={`shrink-0 w-9 h-9 rounded-lg flex items-center justify-center shadow-sm ${it.badge}`}>{it.icon}</span>
             <span className="flex-1 min-w-0">
-              <span className="block font-bold text-base text-ink leading-tight">{it.title}</span>
-              <span className="block text-sm text-ink-3 leading-snug">{it.sub}</span>
-            </span>
-            <span className="shrink-0 w-8 h-8 rounded-full border-2 border-current text-blue-600 dark:text-blue-400 flex items-center justify-center transition-colors group-hover:bg-blue-600 group-hover:text-white group-hover:border-blue-600">
-              <Plus className="w-4 h-4" strokeWidth={3} />
+              <span className="block font-bold text-sm text-ink leading-tight">{it.title}</span>
+              <span className="block text-[0.7rem] text-ink-3 leading-tight truncate">{it.sub}</span>
             </span>
           </button>
         ))}
