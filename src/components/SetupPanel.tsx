@@ -1,12 +1,13 @@
-import { ArrowDown, Cloud, Globe, Monitor, Plus, Router, Server, Trash2, Video, Wand2, X } from 'lucide-react';
+import { ArrowDown, Cloud, Globe, Monitor, Network, Plus, Router, Server, Trash2, Video, Wand2, Wifi, X } from 'lucide-react';
 import type { ReactNode } from 'react';
-import type { Config, Device, FieldId, IspConfig, NodeId, RouterId, Rules } from '../lib/model';
-import { KIND_INFO, ruleField } from '../lib/model';
+import { descendants } from '../lib/graph';
+import type { Config, Device, FieldId, IspConfig, NodeId, RouterId, Rules, Uplinks } from '../lib/model';
+import { FIXED_NODES, KIND_INFO, isL2, ruleField } from '../lib/model';
 import { analyzeInterface, parseSubnetMask } from '../lib/net';
 
-export const PANEL_WIDTH_REM = { isp: 22, router: 30, device: 30 } as const;
-export const panelWidthRem = (node: NodeId, isDevice: boolean) =>
-  node === 'isp' ? PANEL_WIDTH_REM.isp : node === 'r1' || node === 'r2' ? PANEL_WIDTH_REM.router : isDevice ? PANEL_WIDTH_REM.device : PANEL_WIDTH_REM.device;
+export const PANEL_WIDTH_REM = { isp: 22, router: 30, device: 30, l2: 23 } as const;
+export const panelWidthRem = (node: NodeId, isDevice: boolean, l2 = false) =>
+  node === 'isp' ? PANEL_WIDTH_REM.isp : node === 'r1' || node === 'r2' ? PANEL_WIDTH_REM.router : l2 ? PANEL_WIDTH_REM.l2 : isDevice ? PANEL_WIDTH_REM.device : PANEL_WIDTH_REM.device;
 
 interface Common {
   cfg: Config;
@@ -19,6 +20,8 @@ interface Common {
 export interface PanelProps extends Common {
   node: NodeId;
   device?: Device;
+  devices: Device[];
+  uplinks: Uplinks;
   isp: IspConfig;
   rules: Rules;
   onAddRule: (router: RouterId) => void;
@@ -27,6 +30,7 @@ export interface PanelProps extends Common {
   onAutoFill: (nodeId: NodeId) => void;
   onRemoveDevice: (id: NodeId) => void;
   onRename: (id: NodeId, name: string) => void;
+  onUplink: (child: NodeId, parent: NodeId) => void;
   onTestPing: (id: NodeId) => void;
   onTestInbound: (id: NodeId) => void;
 }
@@ -42,8 +46,8 @@ export default function SetupPanel(p: PanelProps) {
   const dev = p.device;
   const head = dev
     ? {
-        bg: dev.kind === 'camera' ? 'bg-violet-900' : dev.kind === 'webserver' ? 'bg-violet-900' : 'bg-slate-800 dark:bg-slate-700',
-        icon: dev.kind === 'camera' ? <Video className="w-5 h-5 text-violet-300" /> : dev.kind === 'webserver' ? <Globe className="w-5 h-5 text-violet-300" /> : <Monitor className="w-5 h-5 text-emerald-400" />,
+        bg: dev.kind === 'switch' ? 'bg-teal-900' : dev.kind === 'ap' ? 'bg-cyan-900' : dev.kind === 'camera' ? 'bg-violet-900' : dev.kind === 'webserver' ? 'bg-violet-900' : 'bg-slate-800 dark:bg-slate-700',
+        icon: dev.kind === 'switch' ? <Network className="w-5 h-5 text-teal-300" /> : dev.kind === 'ap' ? <Wifi className="w-5 h-5 text-cyan-300" /> : dev.kind === 'camera' ? <Video className="w-5 h-5 text-violet-300" /> : dev.kind === 'webserver' ? <Globe className="w-5 h-5 text-violet-300" /> : <Monitor className="w-5 h-5 text-emerald-400" />,
         title: `Nastavení – ${dev.name}`,
       }
     : FIXED_HEAD[p.node];
@@ -82,8 +86,12 @@ export default function SetupPanel(p: PanelProps) {
             <input id={`${dev.id}-name`} value={dev.name} onChange={(e) => p.onRename(dev.id, e.target.value)} maxLength={28}
               className="w-full px-3 py-2 text-base border border-line-strong bg-surface rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
-          <ClientBody {...p} prefix={dev.id} title={`Ethernet (LAN 2) – ${KIND_INFO[dev.kind].label}`} />
-          {dev.kind === 'pc' ? (
+          {isL2(dev) ? (
+            <L2Body {...p} device={dev} />
+          ) : (
+            <ClientBody {...p} prefix={dev.id} title={`Ethernet (LAN 2) – ${KIND_INFO[dev.kind].label}`} />
+          )}
+          {isL2(dev) ? null : dev.kind === 'pc' ? (
             <div className="px-4 pb-4 bg-emerald-50/50 dark:bg-emerald-950/30">
               <button type="button" onClick={() => p.onTestPing(dev.id)} className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-base font-bold transition">
                 Ping do internetu z tohoto PC
@@ -183,7 +191,6 @@ function fieldMaker(c: Common, tone: Tone) {
         value={c.cfg[id] ?? ''}
         onChange={(v) => c.onField(id, v)}
         error={c.errorFields.has(id) || cidrWarn}
-        placeholder={isMask ? (c.cidr ? '255.255.255.0 nebo /24' : '255.255.255.0') : undefined}
         title={cidrWarn ? 'Lomený zápis je vypnutý. Zadejte masku např. 255.255.255.0 (nebo ho zapněte v Nastavení).' : undefined}
         ring={TONES[tone].ring}
       />
@@ -245,7 +252,7 @@ function PatSection(p: PanelProps & { router: RouterId }) {
                 const fid = ruleField(r, rid, part);
                 return (
                   <MiniField key={fid} id={fid} value={p.cfg[fid] ?? ''} error={p.errorFields.has(fid)} onChange={(v) => p.onField(fid, v)}
-                    label={part === 'ext' ? 'Vnější port' : part === 'ip' ? 'Cílová IP' : 'Cílový port'} placeholder={part === 'ip' ? '0.0.0.0' : '0000'} />
+                    label={part === 'ext' ? 'Vnější port' : part === 'ip' ? 'Cílová IP' : 'Cílový port'} />
                 );
               })}
               <button type="button" onClick={() => p.onRemoveRule(r, rid)} title="Smazat pravidlo" aria-label="Smazat pravidlo"
@@ -277,10 +284,60 @@ function ClientBody(p: PanelProps & { prefix: string; title: string }) {
         </button>
       }
     >
+      <UplinkSelect nodeId={p.prefix} devices={p.devices} uplinks={p.uplinks} onUplink={p.onUplink} />
       <div className={grid2}>{lan(id('ip'), 'IPv4 adresa')}{lan(id('mask'), 'Maska podsítě', true)}</div>
       <div className={grid2}>{lan(id('gw'), 'Výchozí brána')}{lan(id('dns'), 'DNS server')}</div>
       {p.showCalc && <Calc ip={p.cfg[id('ip')] ?? ''} mask={p.cfg[id('mask')] ?? ''} cidr={p.cidr} />}
     </Section>
+  );
+}
+
+/** Výběr, k čemu je zařízení připojeno: Router 2, nebo některý switch / AP (bez cyklů). */
+function UplinkSelect({ nodeId, devices, uplinks, onUplink }: { nodeId: NodeId; devices: Device[]; uplinks: Uplinks; onUplink: (child: NodeId, parent: NodeId) => void }) {
+  const all = [...FIXED_NODES, ...devices.map((d) => d.id)];
+  const below = descendants(uplinks, all, nodeId);
+  const options = devices.filter((d) => isL2(d) && d.id !== nodeId && !below.includes(d.id));
+  const cur = uplinks[nodeId] ?? 'r2';
+  const value = cur === 'r2' || options.some((o) => o.id === cur) ? cur : 'r2';
+  return (
+    <div>
+      <label htmlFor={`${nodeId}-uplink`} className="block text-sm font-semibold text-ink mb-1">Připojeno k</label>
+      <select
+        id={`${nodeId}-uplink`}
+        value={value}
+        onChange={(e) => onUplink(nodeId, e.target.value)}
+        className="w-full px-3 py-2 text-base border border-line-strong bg-surface text-ink rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+      >
+        <option value="r2">Router 2 (LAN)</option>
+        {options.map((d) => <option key={d.id} value={d.id}>{d.name} ({KIND_INFO[d.kind].label}{d.kind === 'ap' ? ' – Wi-Fi' : ''})</option>)}
+      </select>
+    </div>
+  );
+}
+
+/** Switch / AP: bez IP konfigurace, jen propojují. */
+function L2Body(p: PanelProps & { device: Device }) {
+  const d = p.device;
+  const all = [...FIXED_NODES, ...p.devices.map((x) => x.id)];
+  const children = all.filter((n) => (p.uplinks[n] ?? 'r2') === d.id && n !== d.id);
+  const nameOf = (id: NodeId) => (id === 'pc' ? 'Klientské PC' : p.devices.find((x) => x.id === id)?.name ?? id);
+  return (
+    <div className="p-4 space-y-3 bg-teal-50/50 dark:bg-teal-950/30">
+      <UplinkSelect nodeId={d.id} devices={p.devices} uplinks={p.uplinks} onUplink={p.onUplink} />
+      <p className="text-sm text-ink-2 leading-snug bg-surface/80 border border-line rounded-lg p-2.5">
+        {d.kind === 'switch'
+          ? 'Switch pracuje na vrstvě 2 – nemá IP adresu a jen propojuje zařízení ve stejné podsíti. Ostatní zařízení k němu připojíte v jejich nastavení v poli „Připojeno k“.'
+          : 'Wi-Fi AP propojuje bezdrátová zařízení do stejné podsítě (LAN 2), sám nemá IP konfiguraci. Zařízení se k němu připojí v poli „Připojeno k“ (v schématu čárkovaně).'}
+      </p>
+      <div className="text-sm">
+        <div className="text-xs font-semibold text-ink-3 uppercase tracking-wide mb-1">Připojená zařízení ({children.length})</div>
+        {children.length ? (
+          <ul className="space-y-1">{children.map((c) => <li key={c} className="font-mono text-ink">• {nameOf(c)}</li>)}</ul>
+        ) : (
+          <div className="text-ink-4 italic">Zatím nic.</div>
+        )}
+      </div>
+    </div>
   );
 }
 

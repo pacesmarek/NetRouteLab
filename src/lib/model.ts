@@ -24,11 +24,17 @@ export function nodeOfField(id: FieldId): NodeId {
   return id.replace(/-(ip|mask|gw|dns|pub)$/, '');
 }
 
-export type LinkId = string; // 'link-r1-isp' | 'link-r2-r1' | `link-${klient}-r2`
-export const linkOf = (device: NodeId): LinkId => `link-${device}-r2`;
+export type LinkId = string; // `link-${dítě}-${rodič}`: 'link-r1-isp', 'link-r2-r1', 'link-pc-r2', 'link-dev-1-dev-3', …
+export const linkId = (child: NodeId, parent: NodeId): LinkId => `link-${child}-${parent}`;
+
+/** Připojení uzlu k nadřazenému (výchozí: Router 2). Zařízení lze připojit k Routeru 2, switchi nebo AP. */
+export type Uplinks = Record<NodeId, NodeId>;
+
+export interface Pos { x: number; y: number }
+export type Mode = 'default' | 'sample' | 'scenario';
 
 // --- Přidaná zařízení v síti LAN 2 ---
-export type DeviceKind = 'pc' | 'camera' | 'webserver';
+export type DeviceKind = 'pc' | 'camera' | 'webserver' | 'switch' | 'ap';
 
 export interface Device {
   id: NodeId; // 'dev-1'…
@@ -38,12 +44,18 @@ export interface Device {
 
 export const KIND_INFO: Record<DeviceKind, { label: string; port?: number; service?: string }> = {
   pc: { label: 'PC' },
+  switch: { label: 'Switch' },
+  ap: { label: 'Wi-Fi AP' },
   camera: { label: 'Kamera', port: 554, service: 'RTSP' },
   webserver: { label: 'Web server', port: 80, service: 'HTTP' },
 };
 
 /** Zařízení, ke kterému se přistupuje zvenku (PAT). */
-export const isServer = (d: Device) => d.kind !== 'pc';
+export const isServer = (d: Device) => d.kind === 'camera' || d.kind === 'webserver';
+/** Prvky vrstvy 2 (switch, AP) – nemají IP adresu, jen propojují. */
+export const isL2 = (d: { kind: DeviceKind }) => d.kind === 'switch' || d.kind === 'ap';
+/** Zařízení s IP konfigurací (PC, kamera, server). */
+export const hasIp = (d: { kind: DeviceKind }) => !isL2(d);
 
 // --- Pravidla PAT (přesměrování portů) na routerech ---
 export type RouterId = 'r1' | 'r2';
@@ -70,6 +82,12 @@ export interface Scenario {
   lan1RequiredPrefix: number;
   lan2RequiredNet: string;
   lan2RequiredPrefix: number;
+  /** krátký popis úlohy pro seznam úloh */
+  summary?: string;
+  /** doplňující požadavek zadání (text) */
+  note?: string;
+  /** zařízení, která se přidají do plochy při spuštění úlohy (behind = index zařízení v tomto poli, za kterým je zapojené) */
+  devices?: { kind: DeviceKind; name?: string; behind?: number }[];
 }
 
 export interface LogItem {
@@ -104,6 +122,24 @@ export const SCENARIOS: Scenario[] = [
     ispGw: '78.102.88.129', ispMask: '255.255.255.128', ispDns: '9.9.9.9',
     lan1RequiredNet: '10.100.0.0', lan1RequiredPrefix: 16,
     lan2RequiredNet: '192.168.200.0', lan2RequiredPrefix: 24,
+  },
+  {
+    title: 'Scénář #5: Kamerový systém – tři kamery z internetu',
+    summary: 'Tři IP kamery v LAN 2, každá dostupná z internetu na vlastním portu (8081–8083) přes dvojitý NAT.',
+    note: 'Kamery musí být dostupné z internetu na veřejných portech 8081, 8082 a 8083 (RTSP, port služby 554). Nastavte PAT na obou routerech.',
+    ispGw: '90.176.20.1', ispMask: '255.255.255.0', ispDns: '8.8.8.8',
+    lan1RequiredNet: '192.168.10.0', lan1RequiredPrefix: 24,
+    lan2RequiredNet: '10.10.0.0', lan2RequiredPrefix: 24,
+    devices: [{ kind: 'camera' }, { kind: 'camera' }, { kind: 'camera' }],
+  },
+  {
+    title: 'Scénář #6: Server a kamera za switchem',
+    summary: 'Web server a kamera zapojené přes switch do LAN 2; obě zařízení zpřístupněte z internetu.',
+    note: 'Web server (HTTP 80) i kamera (RTSP 554) jsou zapojeny přes switch. Zpřístupněte je z internetu pomocí PAT; každé na vlastním veřejném portu.',
+    ispGw: '147.32.10.1', ispMask: '255.255.255.128', ispDns: '1.1.1.1',
+    lan1RequiredNet: '172.20.0.0', lan1RequiredPrefix: 24,
+    lan2RequiredNet: '192.168.77.0', lan2RequiredPrefix: 24,
+    devices: [{ kind: 'switch' }, { kind: 'webserver', behind: 0 }, { kind: 'camera', behind: 0 }],
   },
 ];
 

@@ -6,11 +6,15 @@ Laboratoř výpočetních aplikací – Technická fakulta ČZU v Praze.
 ## Funkce
 
 - topologie ISP → Router 1 → Router 2 → PC, zařízení se dají přetahovat, nastavení vyjíždí do strany
-- do plochy lze přidat další PC, kamery (RTSP 554) a web servery (HTTP 80)
+- do plochy lze přidat další PC, kamery (RTSP 554), web servery (HTTP 80), switche a Wi-Fi AP
+- seznam úloh (včetně úloh s kamerami), sdílení odkazem, export / import, ukládání stavu, krok zpět
+- traceroute s animací paketu, zoom a posun plochy, přichytávání k mřížce
 - PAT (přesměrování portů) na obou routerech + test přístupu z internetu přes dvojitý NAT
 - Průvodce (spotlight) krok za krokem včetně zařízení a PAT
 - světlý / tmavý / systémový režim, velikost písma (Normální / Větší / Tabule), lomený zápis masek jako pokročilá volba
 - starší prototypy (jediný HTML soubor) jsou ve složce `legacy/`
+
+- backlog nápadů a plán dalších funkcí: [BACKLOG.md](BACKLOG.md), přehled verzí: [CHANGELOG.md](CHANGELOG.md) (zobrazuje se i v aplikaci)
 
 ## Vývoj
 

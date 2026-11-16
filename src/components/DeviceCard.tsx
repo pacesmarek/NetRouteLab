@@ -23,6 +23,8 @@ interface Props {
   rootPx: number;
   onMove: (x: number, y: number) => void;
   onToggle: () => void;
+  /** konec tažení (zrušení vodítek) */
+  onDragEnd?: () => void;
 }
 
 /** Karta zařízení: klik = rozbalí nastavení, tažení = přesun po plátně (myš, dotyk i pero). */
@@ -54,13 +56,13 @@ export default function DeviceCard(p: Props) {
         p.onToggle();
       }}
       onPointerDown={(e) => {
-        if (e.button !== 0) return;
+        if (e.button !== 0 || !e.isPrimary) return; // druhý prst = zoom plochy, ne tažení karty
         e.currentTarget.setPointerCapture(e.pointerId);
         drag.current = { px: e.clientX, py: e.clientY, ox: p.x, oy: p.y, moved: false };
       }}
       onPointerMove={(e) => {
         const d = drag.current;
-        if (!d) return;
+        if (!d || !e.isPrimary) return;
         const dx = e.clientX - d.px;
         const dy = e.clientY - d.py;
         if (!d.moved && Math.hypot(dx, dy) < 6) return;
@@ -74,8 +76,9 @@ export default function DeviceCard(p: Props) {
         }
         drag.current = null;
         setDragging(false);
+        p.onDragEnd?.();
       }}
-      onPointerCancel={() => { drag.current = null; setDragging(false); }}
+      onPointerCancel={() => { drag.current = null; setDragging(false); p.onDragEnd?.(); }}
     >
       <span className="absolute top-2 right-2 z-10" title={p.status === 'idle' ? '' : p.status === 'ok' ? 'V pořádku' : 'Chyba'}>
         <StatusDot status={p.status} idleIcon={p.idleIcon} idleClass={p.idleClass} />

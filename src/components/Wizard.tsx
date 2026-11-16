@@ -1,7 +1,7 @@
 import { ChevronLeft, ChevronRight, Lightbulb, Play, Wand2, X } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { fmtMask, ipMask } from '../lib/format';
-import { KIND_INFO, isServer, ruleField, type Config, type Device, type FieldId, type IspConfig, type NodeId, type Rules, type Scenario } from '../lib/model';
+import { KIND_INFO, isL2, isServer, ruleField, type Config, type Device, type FieldId, type IspConfig, type NodeId, type Rules, type Scenario } from '../lib/model';
 import { ipToLong, parseSubnetMask } from '../lib/net';
 import { makePlan, solve, type Plan, type Solution } from '../lib/plan';
 
@@ -207,7 +207,7 @@ function buildSteps(p: Plan, sol: Solution, devices: Device[], cidr: boolean, sc
         { id: 'pc-dns', label: 'DNS server', value: p.dns, kind: 'ip' },
       ],
     },
-    ...devices.flatMap((d): Step[] => deviceSteps(d, p, sol)),
+    ...devices.filter((d) => !isL2(d)).flatMap((d): Step[] => deviceSteps(d, p, sol)),
     {
       last: true,
       targetId: 'btn-run-test',

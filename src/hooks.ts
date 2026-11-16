@@ -43,10 +43,10 @@ export function useMeasuredHeight(): [(el: HTMLElement | null) => void, number] 
     roRef.current?.disconnect();
     roRef.current = null;
     if (!el) { setH(0); return; }
-    const ro = new ResizeObserver(() => setH(el.getBoundingClientRect().height));
+    const ro = new ResizeObserver(() => setH(el.offsetHeight));
     ro.observe(el);
     roRef.current = ro;
-    setH(el.getBoundingClientRect().height);
+    setH(el.offsetHeight);
   }, []);
   return [ref, h];
 }
@@ -61,4 +61,45 @@ export function useViewportRem(rootPx: number): number {
     return () => window.removeEventListener('resize', update);
   }, [rootPx]);
   return w;
+}
+
+/**
+ * Stav s historií (zpět / znovu). Opakované úpravy se stejným `key` v krátkém čase se slučují
+ * do jednoho kroku (psaní do pole, tažení zařízení).
+ */
+export function useHistory<T>(initial: T | (() => T), limit = 100) {
+  const [state, setState] = useState<{ past: T[]; present: T; future: T[] }>(() => ({
+    past: [],
+    present: typeof initial === 'function' ? (initial as () => T)() : initial,
+    future: [],
+  }));
+  const meta = useRef({ key: '', t: 0 });
+
+  const set = useCallback((updater: (d: T) => T, key?: string) => {
+    const now = Date.now();
+    const coalesce = !!key && meta.current.key === key && now - meta.current.t < 900;
+    meta.current = { key: key ?? '', t: now };
+    setState((s) => {
+      const next = updater(s.present);
+      if (next === s.present) return s;
+      if (coalesce) return { ...s, present: next };
+      return { past: [...s.past.slice(-(limit - 1)), s.present], present: next, future: [] };
+    });
+  }, [limit]);
+
+  const undo = useCallback(() => {
+    meta.current = { key: '', t: 0 };
+    setState((s) => (s.past.length ? { past: s.past.slice(0, -1), present: s.past[s.past.length - 1], future: [s.present, ...s.future] } : s));
+  }, []);
+  const redo = useCallback(() => {
+    meta.current = { key: '', t: 0 };
+    setState((s) => (s.future.length ? { past: [...s.past, s.present], present: s.future[0], future: s.future.slice(1) } : s));
+  }, []);
+  /** Nahradí stav a smaže historii (načtení z odkazu / souboru). */
+  const reset = useCallback((doc: T) => {
+    meta.current = { key: '', t: 0 };
+    setState({ past: [], present: doc, future: [] });
+  }, []);
+
+  return { doc: state.present, set, undo, redo, reset, canUndo: state.past.length > 0, canRedo: state.future.length > 0 };
 }

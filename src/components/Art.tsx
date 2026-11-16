@@ -85,3 +85,32 @@ export function ServerArt() {
     </svg>
   );
 }
+
+export function SwitchArt() {
+  return (
+    <svg viewBox="0 0 120 80" className={cls} aria-hidden="true">
+      <rect x="8" y="26" width="104" height="30" rx="7" fill="#115e59" />
+      <rect x="8" y="26" width="104" height="9" rx="5" fill="#14b8a6" opacity=".5" />
+      {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+        <g key={i}>
+          <rect x={16 + i * 12} y="40" width="9" height="9" rx="1.5" fill="#99f6e4" />
+          <circle cx={20.5 + i * 12} cy="32" r="1.6" fill={i % 3 === 0 ? '#fbbf24' : '#34d399'} />
+        </g>
+      ))}
+      <path d="M26 56v10M60 56v10M94 56v10" stroke="#0f766e" strokeWidth="3.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function ApArt() {
+  return (
+    <svg viewBox="0 0 120 80" className={cls} aria-hidden="true">
+      <path d="M40 24a28 28 0 0 1 40 0M47 31a18 18 0 0 1 26 0M54 38a8 8 0 0 1 12 0" fill="none" stroke="#0891b2" strokeWidth="3.5" strokeLinecap="round" />
+      <circle cx="60" cy="43" r="3.2" fill="#0891b2" />
+      <ellipse cx="60" cy="60" rx="34" ry="10" fill="#164e63" />
+      <ellipse cx="60" cy="57" rx="34" ry="10" fill="#0e7490" />
+      <circle cx="46" cy="58" r="2.2" fill="#34d399" />
+      <circle cx="54" cy="59" r="2.2" fill="#fbbf24" />
+    </svg>
+  );
+}

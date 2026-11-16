@@ -1,5 +1,5 @@
 import { fmtMask } from './format';
-import { KIND_INFO, emptyRules, isServer, ruleField, type Config, type Device, type IspConfig, type Rules, type Scenario } from './model';
+import { KIND_INFO, emptyRules, isL2, isServer, ruleField, type Config, type Device, type IspConfig, type Rules, type Scenario } from './model';
 import { analyzeInterface, ipToLong, longToIp, prefixToMaskStr } from './net';
 
 export interface Plan {
@@ -95,6 +95,7 @@ export function solve(isp: IspConfig, scenario: Scenario | null, devices: Device
   let cameraIdx = 0;
   let webIdx = 0;
   for (const d of devices) {
+    if (isL2(d)) continue; // switch a AP nemají IP konfiguraci
     const ip = alloc();
     cfg[`${d.id}-ip`] = ip;
     cfg[`${d.id}-mask`] = m2;
