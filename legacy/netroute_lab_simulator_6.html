@@ -1,0 +1,1561 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NetRoute Lab – Výuka směrování a konfigurace routerů</title>
+    <!-- Načtení Tailwind CSS pro moderní a responzivní vzhled -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Načtení písma Inter a JetBrains Mono pro IP adresy -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Ikony Lucide -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        wan: {
+                            light: '#eff6ff',
+                            border: '#93c5fd',
+                            text: '#1d4ed8',
+                            badge: '#dbeafe'
+                        },
+                        lan: {
+                            light: '#ecfdf5',
+                            border: '#6ee7b7',
+                            text: '#047857',
+                            badge: '#d1fae5'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Vlastní styly pro animace paketů a plynulé přechody */
+        .mono-input {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            50% { transform: scale(1.15); opacity: 0.3; }
+            100% { transform: scale(0.95); opacity: 0.8; }
+        }
+
+        .node-active {
+            box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.35);
+            border-color: #2563eb !important;
+        }
+
+        .packet-dot {
+            transition: left 0.65s cubic-bezier(0.4, 0, 0.2, 1), top 0.65s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s ease;
+        }
+
+        /* Zvýraznění chybného vstupního pole */
+        .input-error {
+            border-color: #e11d48 !important;
+            background-color: #fff1f2 !important;
+            color: #881337 !important;
+            box-shadow: 0 0 0 2px rgba(225, 29, 72, 0.2);
+        }
+
+        /* Skrytí scrollbarů tam, kde nejsou potřeba, při zachování funkčnosti */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col selection:bg-blue-100 selection:text-blue-900">
+
+    <!-- Horní navigační lišta -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+        <div class="max-w-[1680px] mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+                <div class="bg-blue-600 text-white p-2.5 rounded-xl shadow-sm">
+                    <i data-lucide="network" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg sm:text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                        NetRoute Lab
+                        <span class="text-xs font-semibold uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full">Výukový simulátor</span>
+                    </h1>
+                    <p class="text-xs text-slate-500 hidden sm:block">Kaskádové směrování (Double NAT) a adresace IPv4 podsítí</p>
+                </div>
+            </div>
+
+            <!-- Ovládací tlačítka pro výuku -->
+            <div class="flex flex-wrap items-center gap-2">
+                <button id="btn-toggle-hints" onclick="toggleHints()" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-medium rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition shadow-sm" title="Zobrazí nebo skryje výpočet adresy sítě a broadcastu">
+                    <i data-lucide="calculator" class="w-4 h-4 text-indigo-600"></i>
+                    <span id="hint-btn-text">Skrýt kalkulačku sítí</span>
+                </button>
+                <button onclick="generateRandomScenario()" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-medium rounded-lg border border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 transition shadow-sm">
+                    <i data-lucide="shuffle" class="w-4 h-4 text-amber-600"></i>
+                    <span>Nové zadání</span>
+                </button>
+                <button onclick="loadSampleSolution()" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-medium rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 transition shadow-sm">
+                    <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-600"></i>
+                    <span>Vzorové řešení</span>
+                </button>
+                <button onclick="clearAllFields()" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-medium rounded-lg border border-slate-300 bg-white text-slate-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 transition shadow-sm">
+                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                    <span class="hidden md:inline">Vymazat vše</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Hlavní obsah -->
+    <main class="flex-grow max-w-[1680px] w-full mx-auto px-3 sm:px-6 lg:px-8 py-5 space-y-5">
+
+        <!-- Banner s aktivním zadáním úlohy -->
+        <section id="scenario-banner" class="bg-gradient-to-r from-indigo-50 via-blue-50 to-sky-50 border border-blue-200 rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+            <div class="space-y-1.5">
+                <div class="flex items-center gap-2">
+                    <span class="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-blue-700 bg-blue-100 px-2.5 py-0.5 rounded-md">
+                        <i data-lucide="clipboard-list" class="w-3.5 h-3.5"></i> Zadání úlohy
+                    </span>
+                    <span id="scenario-title" class="text-sm font-semibold text-slate-800">Základní kaskádové propojení dvou routerů</span>
+                </div>
+                <p id="scenario-description" class="text-sm text-slate-700 leading-relaxed">
+                    Nakonfigurujte rozhraní přímo v jednotlivých zařízeních (<strong>Router 1</strong>, <strong>Router 2</strong> a <strong>Klientské PC</strong>) tak, aby koncový počítač mohl komunikovat s internetem (cílový server <code class="mono-input font-semibold text-blue-800 bg-white px-1.5 py-0.5 rounded border border-blue-200">8.8.8.8</code>). Vytvořte tři oddělené IP podsítě.
+                </p>
+                <div id="scenario-constraints" class="flex flex-wrap gap-2 pt-1 text-xs">
+                    <!-- Dynamicky doplněné parametry zadání -->
+                </div>
+            </div>
+            <div class="shrink-0 w-full lg:w-auto flex flex-col sm:flex-row gap-2">
+                <button id="btn-run-test" onclick="runNetworkSimulation()" class="w-full lg:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 text-sm font-bold rounded-xl bg-blue-600 text-white hover:bg-blue-700 active:scale-[0.99] transition shadow-md shadow-blue-600/20 cursor-pointer">
+                    <i data-lucide="play" class="w-4 h-4 fill-current"></i>
+                    <span>Otestovat připojení (Ping)</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- Interaktivní schéma síťové topologie s přímou konfigurací uvnitř uzlů -->
+        <section class="bg-white border border-slate-200 rounded-2xl p-3 sm:p-5 shadow-sm">
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-4 px-1">
+                <div>
+                    <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
+                        <i data-lucide="network" class="w-5 h-5 text-blue-600"></i>
+                        Interaktivní topologie sítě (konfigurujte přímo v zařízeních)
+                    </h2>
+                </div>
+                <div class="flex flex-wrap items-center gap-4 text-xs font-medium">
+                    <span class="flex items-center gap-1.5">
+                        <span class="w-3 h-3 rounded-sm bg-blue-100 border border-blue-400 inline-block"></span>
+                        WAN port (Vnější – směrem k ISP)
+                    </span>
+                    <span class="flex items-center gap-1.5">
+                        <span class="w-3 h-3 rounded-sm bg-emerald-100 border border-emerald-400 inline-block"></span>
+                        LAN port (Vnitřní – směrem k PC)
+                    </span>
+                </div>
+            </div>
+
+            <!-- Vizuální plátno topologie: zleva doprava [Internet / ISP] === [WAN | Router 1 | LAN] === [WAN | Router 2 | LAN] === [Klientské PC] -->
+            <div class="relative overflow-x-auto pb-2">
+                <div id="topology-container" class="w-full min-w-[1260px] relative py-4 px-3 bg-slate-50/70 rounded-xl border border-slate-200/80">
+
+                    <!-- Animovaný paket putující po spojnicích mezi zařízeními -->
+                    <div id="packet-element" onclick="dismissPacketBadge()" title="Kliknutím skryjete stavovou bublinu" class="hidden absolute z-30 -translate-x-1/2 -translate-y-1/2 cursor-pointer flex flex-col items-center transition-all duration-700 ease-in-out" style="left: 91%; top: 52px;">
+                        <div id="packet-badge" class="px-2.5 py-1 rounded-full bg-blue-600 text-white text-[11px] font-bold shadow-lg flex items-center gap-1.5 border-2 border-white whitespace-nowrap hover:scale-105 transition-transform">
+                            <i data-lucide="mail" class="w-3 h-3"></i>
+                            <span id="packet-label">ICMP Ping</span>
+                        </div>
+                    </div>
+
+                    <!-- Hlavní horizontální mřížka uzlů a propojovacích kabelů -->
+                    <div class="grid grid-cols-[minmax(205px,1fr)_32px_minmax(320px,1.55fr)_32px_minmax(320px,1.55fr)_32px_minmax(225px,1.1fr)] items-stretch relative z-10">
+
+                        <!-- UZEL 1 (VLEVO): Internet / ISP brána -->
+                        <div id="node-isp" class="bg-white border-2 border-slate-300 rounded-xl overflow-hidden shadow-sm flex flex-col justify-between transition-all">
+                            <div class="bg-sky-900 text-white px-3.5 py-2.5 flex items-center justify-between">
+                                <div class="flex items-center gap-2">
+                                    <i data-lucide="cloud" class="w-4 h-4 text-sky-300"></i>
+                                    <div>
+                                        <h3 class="font-bold text-xs sm:text-sm leading-tight">Internet / ISP</h3>
+                                        <p class="text-[10px] text-sky-200">Poskytovatel připojení</p>
+                                    </div>
+                                </div>
+                                <span id="status-icon-isp" class="w-5 h-5 rounded-full bg-sky-800 text-sky-200 flex items-center justify-center text-xs shrink-0">
+                                    <i data-lucide="globe" class="w-3.5 h-3.5"></i>
+                                </span>
+                            </div>
+
+                            <div class="p-3 space-y-3 flex-grow flex flex-col justify-between bg-sky-50/30">
+                                <div class="space-y-2.5">
+                                    <div class="bg-white border border-sky-200 rounded-lg p-2.5 space-y-2 shadow-xs">
+                                        <div class="flex items-center justify-between border-b border-sky-100 pb-1">
+                                            <span class="text-[10px] font-bold uppercase tracking-wider text-sky-800">Přípojka ISP (Pevná)</span>
+                                            <span class="w-2 h-2 rounded-full bg-sky-500"></span>
+                                        </div>
+                                        <div>
+                                            <label class="block text-[10px] font-semibold text-slate-500 uppercase">IP brány ISP (Gateway)</label>
+                                            <div id="display-isp-gw" class="mono-input text-xs font-bold text-sky-950 bg-sky-50 border border-sky-200 rounded px-2 py-1 mt-0.5">85.160.10.1</div>
+                                        </div>
+                                        <div>
+                                            <label class="block text-[10px] font-semibold text-slate-500 uppercase">Maska podsítě ISP</label>
+                                            <div id="display-isp-mask" class="mono-input text-xs font-bold text-sky-950 bg-sky-50 border border-sky-200 rounded px-2 py-1 mt-0.5">/24 (255.255.255.0)</div>
+                                        </div>
+                                        <div>
+                                            <label class="block text-[10px] font-semibold text-slate-500 uppercase">Veřejný DNS / Cíl Ping</label>
+                                            <div id="display-isp-dns" class="mono-input text-xs font-bold text-emerald-800 bg-emerald-50/70 border border-emerald-200 rounded px-2 py-1 mt-0.5">8.8.8.8</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="text-[11px] text-slate-600 bg-white border border-slate-200 rounded-lg p-2 leading-snug">
+                                    <strong>WAN port Routeru 1</strong> musí mít adresu ze stejné podsítě jako brána ISP.
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- KABEL 1: ISP <-> Router 1 (WAN) -->
+                        <div class="flex flex-col items-center justify-start pt-11 relative">
+                            <div id="link-r1-isp" class="w-full h-1.5 bg-slate-300 transition-colors duration-300 relative">
+                                <span class="absolute -top-5 left-1/2 -translate-x-1/2 text-[9px] font-mono font-bold text-slate-400 uppercase tracking-tighter">WAN</span>
+                            </div>
+                        </div>
+
+                        <!-- UZEL 2: Router 1 (Hraniční) [WAN | Router 1 | LAN] -->
+                        <div id="node-r1" class="bg-white border-2 border-slate-300 rounded-xl overflow-hidden shadow-sm flex flex-col justify-between transition-all">
+                            <div class="bg-blue-900 text-white px-3.5 py-2.5 flex items-center justify-between">
+                                <div class="flex items-center gap-2">
+                                    <i data-lucide="server" class="w-4 h-4 text-blue-300"></i>
+                                    <div>
+                                        <h3 class="font-bold text-xs sm:text-sm leading-tight">Router 1 (Hraniční)</h3>
+                                        <p class="text-[10px] text-blue-200">Hlavní směrovač do internetu</p>
+                                    </div>
+                                </div>
+                                <span id="status-icon-r1" class="w-5 h-5 rounded-full bg-blue-800 text-blue-200 flex items-center justify-center text-xs shrink-0">
+                                    <i data-lucide="minus" class="w-3.5 h-3.5"></i>
+                                </span>
+                            </div>
+
+                            <!-- Rozdělení na levý WAN port a pravý LAN port -->
+                            <div class="grid grid-cols-2 divide-x divide-slate-200 flex-grow">
+                                <!-- Levá strana: WAN rozhraní Routeru 1 -->
+                                <div class="p-3 bg-blue-50/40 space-y-2 flex flex-col justify-between">
+                                    <div class="space-y-2">
+                                        <div class="flex items-center justify-between border-b border-blue-200 pb-1">
+                                            <span class="text-[11px] font-bold uppercase tracking-wider text-blue-800 flex items-center gap-1">
+                                                <span class="w-2 h-2 rounded-full bg-blue-600"></span> WAN (Vnější)
+                                            </span>
+                                            <span class="text-[10px] text-blue-600 font-medium">← k ISP</span>
+                                        </div>
+                                        <div>
+                                            <label class="block text-[11px] font-semibold text-slate-700 mb-0.5">IPv4 adresa</label>
+                                            <input type="text" id="r1-wan-ip" oninput="onConfigChange()" class="mono-input w-full px-2 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                        </div>
+                                        <div>
+                                            <label class="block text-[11px] font-semibold text-slate-700 mb-0.5">Maska podsítě</label>
+                                            <input type="text" id="r1-wan-mask" oninput="onConfigChange()" class="mono-input w-full px-2 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                        </div>
+                                        <div>
+                                            <label class="block text-[11px] font-semibold text-slate-700 mb-0.5">Výchozí brána</label>
+                                            <input type="text" id="r1-wan-gw" oninput="onConfigChange()" class="mono-input w-full px-2 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                        </div>
+                                        <div>
+                                            <label class="block text-[11px] font-semibold text-slate-700 mb-0.5">DNS server</label>
+                                            <input type="text" id="r1-wan-dns" oninput="onConfigChange()" class="mono-input w-full px-2 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                        </div>
+                                    </div>
+                                    <div class="subnet-hint bg-white/90 border border-blue-200/80 rounded px-2 py-1 text-[10px] text-slate-600 space-y-0.5">
+                                        <div class="flex justify-between"><span>Síť:</span><strong class="mono-input text-slate-800" id="calc-r1-wan-net">—</strong></div>
+                                        <div class="flex justify-between"><span>Bcast:</span><strong class="mono-input text-slate-800" id="calc-r1-wan-bcast">—</strong></div>
+                                    </div>
+                                </div>
+
+                                <!-- Pravá strana: LAN rozhraní Routeru 1 -->
+                                <div class="p-3 bg-emerald-50/40 space-y-2 flex flex-col justify-between">
+                                    <div class="space-y-2">
+                                        <div class="flex items-center justify-between border-b border-emerald-200 pb-1">
+                                            <span class="text-[11px] font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-1">
+                                                <span class="w-2 h-2 rounded-full bg-emerald-500"></span> LAN 1 (Vnitřní)
+                                            </span>
+                                            <span class="text-[10px] text-emerald-700 font-medium">k R2 →</span>
+                                        </div>
+                                        <div>
+                                            <label class="block text-[11px] font-semibold text-slate-700 mb-0.5">IPv4 adresa</label>
+                                            <input type="text" id="r1-lan-ip" oninput="onConfigChange()" class="mono-input w-full px-2 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                        </div>
+                                        <div>
+                                            <label class="block text-[11px] font-semibold text-slate-700 mb-0.5">Maska podsítě</label>
+                                            <input type="text" id="r1-lan-mask" oninput="onConfigChange()" class="mono-input w-full px-2 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                        </div>
+                                    </div>
+                                    <div class="subnet-hint bg-white/90 border border-emerald-200/80 rounded px-2 py-1 text-[10px] text-slate-600 space-y-0.5">
+                                        <div class="flex justify-between"><span>Síť:</span><strong class="mono-input text-slate-800" id="calc-r1-lan-net">—</strong></div>
+                                        <div class="flex justify-between"><span>Bcast:</span><strong class="mono-input text-slate-800" id="calc-r1-lan-bcast">—</strong></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- KABEL 2: Router 1 (LAN) <-> Router 2 (WAN) -->
+                        <div class="flex flex-col items-center justify-start pt-11 relative">
+                            <div id="link-r2-r1" class="w-full h-1.5 bg-slate-300 transition-colors duration-300 relative">
+                                <span class="absolute -top-5 left-1/2 -translate-x-1/2 text-[9px] font-mono font-bold text-slate-400 uppercase tracking-tighter">ETH</span>
+                            </div>
+                        </div>
+
+                        <!-- UZEL 3: Router 2 (Vnitřní) [WAN | Router 2 | LAN] -->
+                        <div id="node-r2" class="bg-white border-2 border-slate-300 rounded-xl overflow-hidden shadow-sm flex flex-col justify-between transition-all">
+                            <div class="bg-indigo-900 text-white px-3.5 py-2.5 flex items-center justify-between">
+                                <div class="flex items-center gap-2">
+                                    <i data-lucide="router" class="w-4 h-4 text-indigo-300"></i>
+                                    <div>
+                                        <h3 class="font-bold text-xs sm:text-sm leading-tight">Router 2 (Vnitřní)</h3>
+                                        <p class="text-[10px] text-indigo-200">Podřízený směrovač (LAN 2)</p>
+                                    </div>
+                                </div>
+                                <span id="status-icon-r2" class="w-5 h-5 rounded-full bg-indigo-800 text-indigo-200 flex items-center justify-center text-xs shrink-0">
+                                    <i data-lucide="minus" class="w-3.5 h-3.5"></i>
+                                </span>
+                            </div>
+
+                            <!-- Rozdělení na levý WAN port a pravý LAN port -->
+                            <div class="grid grid-cols-2 divide-x divide-slate-200 flex-grow">
+                                <!-- Levá strana: WAN rozhraní Routeru 2 -->
+                                <div class="p-3 bg-blue-50/40 space-y-2 flex flex-col justify-between">
+                                    <div class="space-y-2">
+                                        <div class="flex items-center justify-between border-b border-blue-200 pb-1">
+                                            <span class="text-[11px] font-bold uppercase tracking-wider text-blue-800 flex items-center gap-1">
+                                                <span class="w-2 h-2 rounded-full bg-blue-600"></span> WAN (Vnější)
+                                            </span>
+                                            <span class="text-[10px] text-blue-600 font-medium">← k R1</span>
+                                        </div>
+                                        <div>
+                                            <label class="block text-[11px] font-semibold text-slate-700 mb-0.5">IPv4 adresa</label>
+                                            <input type="text" id="r2-wan-ip" oninput="onConfigChange()" class="mono-input w-full px-2 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                        </div>
+                                        <div>
+                                            <label class="block text-[11px] font-semibold text-slate-700 mb-0.5">Maska podsítě</label>
+                                            <input type="text" id="r2-wan-mask" oninput="onConfigChange()" class="mono-input w-full px-2 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                        </div>
+                                        <div>
+                                            <label class="block text-[11px] font-semibold text-slate-700 mb-0.5">Výchozí brána</label>
+                                            <input type="text" id="r2-wan-gw" oninput="onConfigChange()" class="mono-input w-full px-2 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                        </div>
+                                        <div>
+                                            <label class="block text-[11px] font-semibold text-slate-700 mb-0.5">DNS server</label>
+                                            <input type="text" id="r2-wan-dns" oninput="onConfigChange()" class="mono-input w-full px-2 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                        </div>
+                                    </div>
+                                    <div class="subnet-hint bg-white/90 border border-blue-200/80 rounded px-2 py-1 text-[10px] text-slate-600 space-y-0.5">
+                                        <div class="flex justify-between"><span>Síť:</span><strong class="mono-input text-slate-800" id="calc-r2-wan-net">—</strong></div>
+                                        <div class="flex justify-between"><span>Bcast:</span><strong class="mono-input text-slate-800" id="calc-r2-wan-bcast">—</strong></div>
+                                    </div>
+                                </div>
+
+                                <!-- Pravá strana: LAN rozhraní Routeru 2 -->
+                                <div class="p-3 bg-emerald-50/40 space-y-2 flex flex-col justify-between">
+                                    <div class="space-y-2">
+                                        <div class="flex items-center justify-between border-b border-emerald-200 pb-1">
+                                            <span class="text-[11px] font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-1">
+                                                <span class="w-2 h-2 rounded-full bg-emerald-500"></span> LAN 2 (Vnitřní)
+                                            </span>
+                                            <span class="text-[10px] text-emerald-700 font-medium">k PC →</span>
+                                        </div>
+                                        <div>
+                                            <label class="block text-[11px] font-semibold text-slate-700 mb-0.5">IPv4 adresa</label>
+                                            <input type="text" id="r2-lan-ip" oninput="onConfigChange()" class="mono-input w-full px-2 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                        </div>
+                                        <div>
+                                            <label class="block text-[11px] font-semibold text-slate-700 mb-0.5">Maska podsítě</label>
+                                            <input type="text" id="r2-lan-mask" oninput="onConfigChange()" class="mono-input w-full px-2 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                        </div>
+                                    </div>
+                                    <div class="subnet-hint bg-white/90 border border-emerald-200/80 rounded px-2 py-1 text-[10px] text-slate-600 space-y-0.5">
+                                        <div class="flex justify-between"><span>Síť:</span><strong class="mono-input text-slate-800" id="calc-r2-lan-net">—</strong></div>
+                                        <div class="flex justify-between"><span>Bcast:</span><strong class="mono-input text-slate-800" id="calc-r2-lan-bcast">—</strong></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- KABEL 3: Router 2 (LAN) <-> Klientské PC -->
+                        <div class="flex flex-col items-center justify-start pt-11 relative">
+                            <div id="link-pc-r2" class="w-full h-1.5 bg-slate-300 transition-colors duration-300 relative">
+                                <span class="absolute -top-5 left-1/2 -translate-x-1/2 text-[9px] font-mono font-bold text-slate-400 uppercase tracking-tighter">LAN</span>
+                            </div>
+                        </div>
+
+                        <!-- UZEL 4 (VPRAVO): Klientské PC -->
+                        <div id="node-pc" class="bg-white border-2 border-slate-300 rounded-xl overflow-hidden shadow-sm flex flex-col justify-between transition-all">
+                            <div class="bg-slate-800 text-white px-3.5 py-2.5 flex items-center justify-between">
+                                <div class="flex items-center gap-2">
+                                    <i data-lucide="monitor" class="w-4 h-4 text-emerald-400"></i>
+                                    <div>
+                                        <h3 class="font-bold text-xs sm:text-sm leading-tight">Klientské PC</h3>
+                                        <p class="text-[10px] text-slate-300">Koncová stanice (Zdroj Ping)</p>
+                                    </div>
+                                </div>
+                                <span id="status-icon-pc" class="w-5 h-5 rounded-full bg-slate-700 text-slate-300 flex items-center justify-center text-xs shrink-0">
+                                    <i data-lucide="minus" class="w-3.5 h-3.5"></i>
+                                </span>
+                            </div>
+
+                            <div class="p-3 bg-emerald-50/40 space-y-2 flex-grow flex flex-col justify-between">
+                                <div class="space-y-2">
+                                    <div class="flex items-center justify-between border-b border-emerald-200 pb-1">
+                                        <span class="text-[11px] font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-1">
+                                            <span class="w-2 h-2 rounded-full bg-emerald-500"></span> Ethernet (LAN)
+                                        </span>
+                                        <button onclick="autoFillPCFromR2()" class="text-[10px] bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded font-semibold transition flex items-center gap-1 cursor-pointer" title="Doplní IP, masku, bránu a DNS podle LAN portu Routeru 2">
+                                            <i data-lucide="wand-2" class="w-2.5 h-2.5"></i> Dle R2
+                                        </button>
+                                    </div>
+                                    <div>
+                                        <label class="block text-[11px] font-semibold text-slate-700 mb-0.5">IPv4 adresa PC</label>
+                                        <input type="text" id="pc-ip" oninput="onConfigChange()" class="mono-input w-full px-2 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[11px] font-semibold text-slate-700 mb-0.5">Maska podsítě</label>
+                                        <input type="text" id="pc-mask" oninput="onConfigChange()" class="mono-input w-full px-2 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[11px] font-semibold text-slate-700 mb-0.5">Výchozí brána</label>
+                                        <input type="text" id="pc-gw" oninput="onConfigChange()" class="mono-input w-full px-2 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[11px] font-semibold text-slate-700 mb-0.5">DNS server</label>
+                                        <input type="text" id="pc-dns" oninput="onConfigChange()" class="mono-input w-full px-2 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                    </div>
+                                </div>
+                                <div class="subnet-hint bg-white/90 border border-emerald-200/80 rounded px-2 py-1 text-[10px] text-slate-600 space-y-0.5">
+                                    <div class="flex justify-between"><span>Síť:</span><strong class="mono-input text-slate-800" id="calc-pc-net">—</strong></div>
+                                    <div class="flex justify-between"><span>Bcast:</span><strong class="mono-input text-slate-800" id="calc-pc-bcast">—</strong></div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Kompaktní diagnostický výpis (Log) pod schématem -->
+        <section id="diagnostics-panel" class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm">
+            <div class="flex items-center justify-between mb-3">
+                <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
+                    <i data-lucide="terminal" class="w-5 h-5 text-slate-700"></i>
+                    Diagnostika a průběh směrování paketů
+                </h2>
+                <span id="diag-summary-badge" class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
+                    Čeká na spuštění testu
+                </span>
+            </div>
+            <div id="diagnostics-log" class="space-y-2 text-sm">
+                <div class="p-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-600 flex items-center gap-2.5">
+                    <i data-lucide="info" class="w-4 h-4 text-blue-500 shrink-0"></i>
+                    <span>Vyplňte IP konfiguraci přímo v jednotlivých zařízeních výše a klikněte na tlačítko <strong>„Otestovat připojení (Ping)“</strong> pro ověření funkčnosti sítě.</span>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Patička -->
+    <footer class="bg-white border-t border-slate-200 py-4 mt-8">
+        <div class="max-w-[1680px] mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500">
+            <p>Interaktivní pomůcka pro výuku počítačových sítí • Směrování IPv4, masky podsítí a Double NAT</p>
+            <p class="font-mono text-slate-400">Podporovaný formát masek: CIDR (/24) i dekadicky (255.255.255.0)</p>
+        </div>
+    </footer>
+
+    <!-- Aplikační logika v JavaScriptu -->
+    <script>
+        // Pevné parametry ISP pro aktuální relaci / zadání
+        let ispConfig = {
+            gwIp: '85.160.10.1',
+            gwMask: '/24',
+            dnsIp: '8.8.8.8'
+        };
+
+        // Inicializace ikon Lucide po načtení DOM
+        document.addEventListener('DOMContentLoaded', () => {
+            initClearButtons();
+            lucide.createIcons();
+            updateIspDisplay();
+            onConfigChange();
+        });
+
+        let hintsVisible = true;
+        let currentScenario = null;
+        let simulationTimer = null;
+
+        /**
+         * Skryje plovoucí stavovou bublinu paketu (např. po kliknutí nebo při úpravě pole).
+         */
+        function dismissPacketBadge() {
+            if (simulationTimer) {
+                clearTimeout(simulationTimer);
+                simulationTimer = null;
+            }
+            const packet = document.getElementById('packet-element');
+            if (packet) {
+                packet.classList.add('hidden');
+            }
+        }
+
+        /**
+         * Aktualizuje živý výpočet adresy sítě a broadcastu při každé změně vstupu.
+         */
+        function onConfigChange() {
+            updateClearButtonsVisibility();
+            dismissPacketBadge();
+
+            // Odstraníme červené zvýraznění z pole, které uživatel právě upravuje
+            if (document.activeElement && document.activeElement.classList.contains('input-error')) {
+                document.activeElement.classList.remove('input-error');
+            }
+
+            // 1. PC
+            const pcIp = document.getElementById('pc-ip').value;
+            const pcMask = document.getElementById('pc-mask').value;
+            const pcInfo = analyzeInterface(pcIp, pcMask);
+            updateCalcHint('calc-pc', pcInfo);
+
+            // 2. Router 2
+            const r2LanIp = document.getElementById('r2-lan-ip').value;
+            const r2LanMask = document.getElementById('r2-lan-mask').value;
+            const r2LanInfo = analyzeInterface(r2LanIp, r2LanMask);
+            updateCalcHint('calc-r2-lan', r2LanInfo);
+
+            const r2WanIp = document.getElementById('r2-wan-ip').value;
+            const r2WanMask = document.getElementById('r2-wan-mask').value;
+            const r2WanInfo = analyzeInterface(r2WanIp, r2WanMask);
+            updateCalcHint('calc-r2-wan', r2WanInfo);
+
+            // 3. Router 1
+            const r1LanIp = document.getElementById('r1-lan-ip').value;
+            const r1LanMask = document.getElementById('r1-lan-mask').value;
+            const r1LanInfo = analyzeInterface(r1LanIp, r1LanMask);
+            updateCalcHint('calc-r1-lan', r1LanInfo);
+
+            const r1WanIp = document.getElementById('r1-wan-ip').value;
+            const r1WanMask = document.getElementById('r1-wan-mask').value;
+            const r1WanInfo = analyzeInterface(r1WanIp, r1WanMask);
+            updateCalcHint('calc-r1-wan', r1WanInfo);
+        }
+
+        function updateCalcHint(prefixId, info) {
+            const netEl = document.getElementById(`${prefixId}-net`);
+            const bcastEl = document.getElementById(`${prefixId}-bcast`);
+            if (info.valid) {
+                netEl.textContent = `${info.networkStr}/${info.prefix}`;
+                bcastEl.textContent = info.broadcastStr;
+            } else {
+                netEl.textContent = '—';
+                bcastEl.textContent = '—';
+            }
+        }
+
+        /**
+         * Automaticky vyplní Klientské PC na základě LAN rozhraní Routeru 2.
+         */
+        function autoFillPCFromR2() {
+            const r2LanIp = document.getElementById('r2-lan-ip').value;
+            const r2LanMask = document.getElementById('r2-lan-mask').value;
+            const ispDns = ispConfig.dnsIp || '8.8.8.8';
+
+            const r2Lan = analyzeInterface(r2LanIp, r2LanMask);
+            if (!r2Lan.valid || !r2Lan.isHostUsable) {
+                renderDiagnostics([{
+                    type: 'error',
+                    title: 'Nelze automaticky vyplnit PC',
+                    text: 'Nejprve zadejte platnou použitelnou IP adresu a masku na vnitřním rozhraní (LAN 2) Routeru 2.'
+                }], 'Chyba předvyplnění', 'error');
+                return;
+            }
+
+            // Vybereme volnou IP adresu v podsíti
+            let candidateIpLong = r2Lan.networkLong + 10;
+            if (candidateIpLong >= r2Lan.broadcastLong || candidateIpLong === r2Lan.ipLong) {
+                candidateIpLong = r2Lan.ipLong + 1 < r2Lan.broadcastLong ? r2Lan.ipLong + 1 : r2Lan.ipLong - 1;
+            }
+
+            if (candidateIpLong <= r2Lan.networkLong || candidateIpLong >= r2Lan.broadcastLong) {
+                renderDiagnostics([{
+                    type: 'error',
+                    title: 'Příliš malá podsíť na Routeru 2',
+                    text: 'V zadané podsíti nezbývá volná adresa pro klientské PC.'
+                }], 'Chyba rozsahu', 'error');
+                return;
+            }
+
+            document.getElementById('pc-ip').value = longToIp(candidateIpLong);
+            document.getElementById('pc-mask').value = `/${r2Lan.prefix}`;
+            document.getElementById('pc-gw').value = r2Lan.ipStr;
+            document.getElementById('pc-dns').value = ispDns;
+            onConfigChange();
+        }
+
+        /**
+         * Načte vzorové funkční řešení.
+         */
+        function loadSampleSolution() {
+            resetVisualStatus();
+            currentScenario = null;
+            document.getElementById('scenario-title').textContent = 'Vzorové funkční zapojení (Double NAT)';
+            document.getElementById('scenario-description').innerHTML = 'Všechny tři podsítě jsou správně odděleny: <strong>ISP ↔ R1</strong> (<code class="mono-input">85.160.10.0/24</code>), <strong>R1 ↔ R2</strong> (<code class="mono-input">192.168.1.0/24</code>) a <strong>R2 ↔ PC</strong> (<code class="mono-input">10.0.0.0/24</code>). Klikněte na <strong>Otestovat připojení</strong>.';
+            document.getElementById('scenario-constraints').innerHTML = '';
+
+            ispConfig = {
+                gwIp: '85.160.10.1',
+                gwMask: '/24',
+                dnsIp: '8.8.8.8'
+            };
+            updateIspDisplay();
+
+            document.getElementById('r1-wan-ip').value = '85.160.10.2';
+            document.getElementById('r1-wan-mask').value = '/24';
+            document.getElementById('r1-wan-gw').value = '85.160.10.1';
+            document.getElementById('r1-wan-dns').value = '8.8.8.8';
+
+            document.getElementById('r1-lan-ip').value = '192.168.1.1';
+            document.getElementById('r1-lan-mask').value = '/24';
+
+            document.getElementById('r2-wan-ip').value = '192.168.1.2';
+            document.getElementById('r2-wan-mask').value = '/24';
+            document.getElementById('r2-wan-gw').value = '192.168.1.1';
+            document.getElementById('r2-wan-dns').value = '8.8.8.8';
+
+            document.getElementById('r2-lan-ip').value = '10.0.0.1';
+            document.getElementById('r2-lan-mask').value = '/24';
+
+            document.getElementById('pc-ip').value = '10.0.0.10';
+            document.getElementById('pc-mask').value = '/24';
+            document.getElementById('pc-gw').value = '10.0.0.1';
+            document.getElementById('pc-dns').value = '8.8.8.8';
+
+            onConfigChange();
+        }
+
+        /**
+         * Vymaže všechna uživatelská pole.
+         */
+        function clearAllFields() {
+            resetVisualStatus();
+            const fields = [
+                'pc-ip', 'pc-mask', 'pc-gw', 'pc-dns',
+                'r2-lan-ip', 'r2-lan-mask', 'r2-wan-ip', 'r2-wan-mask', 'r2-wan-gw', 'r2-wan-dns',
+                'r1-lan-ip', 'r1-lan-mask', 'r1-wan-ip', 'r1-wan-mask', 'r1-wan-gw', 'r1-wan-dns'
+            ];
+            fields.forEach(id => {
+                document.getElementById(id).value = '';
+            });
+            onConfigChange();
+            renderDiagnostics([{
+                type: 'info',
+                title: 'Konfigurace vymazána',
+                text: 'Všechna konfigurační pole byla vyčištěna. Můžete začít znovu.'
+            }], 'Připraveno k zadání', 'neutral');
+        }
+
+        /**
+         * Vygeneruje náhodný výukový scénář s konkrétní ISP přípojkou a požadovanými podsítěmi pro LAN 1 a LAN 2.
+         */
+        function generateRandomScenario() {
+            resetVisualStatus();
+            const scenarios = [
+                {
+                    title: 'Scénář #1: Firemní pobočka a oddělená síť pro hosty',
+                    ispGw: '195.113.42.1',
+                    ispMask: '/24',
+                    ispDns: '1.1.1.1',
+                    lan1RequiredNet: '172.16.10.0',
+                    lan1RequiredPrefix: 24,
+                    lan2RequiredNet: '192.168.50.0',
+                    lan2RequiredPrefix: 24
+                },
+                {
+                    title: 'Scénář #2: Domácí laboratoř za poskytovatelem s menší podsítí (/29)',
+                    ispGw: '82.114.200.1',
+                    ispMask: '/29',
+                    ispDns: '8.8.4.4',
+                    lan1RequiredNet: '10.10.1.0',
+                    lan1RequiredPrefix: 24,
+                    lan2RequiredNet: '10.20.2.0',
+                    lan2RequiredPrefix: 24
+                },
+                {
+                    title: 'Scénář #3: Podsítě s maskou /25 a /26 (VLSM v praxi)',
+                    ispGw: '212.71.15.65',
+                    ispMask: '/26',
+                    ispDns: '8.8.8.8',
+                    lan1RequiredNet: '192.168.100.0',
+                    lan1RequiredPrefix: 25,
+                    lan2RequiredNet: '172.20.5.128',
+                    lan2RequiredPrefix: 25
+                },
+                {
+                    title: 'Scénář #4: Školní učebna za hlavním školním routerem',
+                    ispGw: '78.102.88.129',
+                    ispMask: '/25',
+                    ispDns: '9.9.9.9',
+                    lan1RequiredNet: '10.100.0.0',
+                    lan1RequiredPrefix: 16,
+                    lan2RequiredNet: '192.168.200.0',
+                    lan2RequiredPrefix: 24
+                }
+            ];
+
+            // Vybereme jiný scénář než ten aktuální
+            let chosen = scenarios[Math.floor(Math.random() * scenarios.length)];
+            if (currentScenario && chosen.title === currentScenario.title) {
+                chosen = scenarios[(scenarios.indexOf(chosen) + 1) % scenarios.length];
+            }
+            currentScenario = chosen;
+
+            // Nastavíme ISP hodnoty
+            ispConfig = {
+                gwIp: chosen.ispGw,
+                gwMask: chosen.ispMask,
+                dnsIp: chosen.ispDns
+            };
+            updateIspDisplay();
+
+            // Vymažeme studentská pole
+            clearAllFields();
+
+            // Aktualizujeme zadání nahoře
+            document.getElementById('scenario-title').textContent = chosen.title;
+            document.getElementById('scenario-description').innerHTML = `
+                Připojte síť k ISP bráně <code class="mono-input font-semibold text-blue-900 bg-white px-1.5 py-0.5 rounded border border-blue-200">${chosen.ispGw}${chosen.ispMask}</code> (DNS <code class="mono-input font-semibold text-blue-900 bg-white px-1.5 py-0.5 rounded border border-blue-200">${chosen.ispDns}</code>) a dodržte zadané adresní rozsahy pro obě vnitřní sítě:
+            `;
+            document.getElementById('scenario-constraints').innerHTML = `
+                <span class="px-2.5 py-1 rounded-lg bg-white border border-blue-200 text-slate-700 font-medium">
+                    1. ISP síť: <strong class="mono-input text-blue-700">${chosen.ispGw}${chosen.ispMask}</strong>
+                </span>
+                <span class="px-2.5 py-1 rounded-lg bg-white border border-emerald-200 text-slate-700 font-medium">
+                    2. Síť LAN 1 (mezi R1 a R2): <strong class="mono-input text-emerald-700">${chosen.lan1RequiredNet}/${chosen.lan1RequiredPrefix}</strong>
+                </span>
+                <span class="px-2.5 py-1 rounded-lg bg-white border border-indigo-200 text-slate-700 font-medium">
+                    3. Síť LAN 2 (mezi R2 a PC): <strong class="mono-input text-indigo-700">${chosen.lan2RequiredNet}/${chosen.lan2RequiredPrefix}</strong>
+                </span>
+            `;
+
+            onConfigChange();
+        }
+
+        /**
+         * Resetuje vizuální stav ikon ve schématu a animaci paketu.
+         */
+        function resetVisualStatus() {
+            if (simulationTimer) {
+                clearTimeout(simulationTimer);
+                simulationTimer = null;
+            }
+            clearAllInputErrors();
+            const packet = document.getElementById('packet-element');
+            packet.classList.add('hidden');
+
+            ['pc', 'r2', 'r1', 'isp'].forEach(node => {
+                const iconEl = document.getElementById(`status-icon-${node}`);
+                const cardNode = document.getElementById(`node-${node}`);
+                cardNode.classList.remove('border-emerald-500', 'border-rose-500', 'ring-2', 'ring-rose-500/20', 'ring-emerald-500/20');
+                cardNode.classList.add('border-slate-300');
+
+                if (node === 'isp') {
+                    iconEl.className = 'w-5 h-5 rounded-full bg-sky-800 text-sky-200 flex items-center justify-center text-xs shrink-0';
+                    iconEl.innerHTML = '<i data-lucide="globe" class="w-3.5 h-3.5"></i>';
+                } else if (node === 'r1') {
+                    iconEl.className = 'w-5 h-5 rounded-full bg-blue-800 text-blue-200 flex items-center justify-center text-xs shrink-0';
+                    iconEl.innerHTML = '<i data-lucide="minus" class="w-3.5 h-3.5"></i>';
+                } else if (node === 'r2') {
+                    iconEl.className = 'w-5 h-5 rounded-full bg-indigo-800 text-indigo-200 flex items-center justify-center text-xs shrink-0';
+                    iconEl.innerHTML = '<i data-lucide="minus" class="w-3.5 h-3.5"></i>';
+                } else {
+                    iconEl.className = 'w-5 h-5 rounded-full bg-slate-700 text-slate-300 flex items-center justify-center text-xs shrink-0';
+                    iconEl.innerHTML = '<i data-lucide="minus" class="w-3.5 h-3.5"></i>';
+                }
+            });
+
+            ['link-pc-r2', 'link-r2-r1', 'link-r1-isp'].forEach(linkId => {
+                const line = document.getElementById(linkId);
+                line.classList.remove('bg-emerald-500', 'bg-rose-500');
+                line.classList.add('bg-slate-300');
+            });
+
+            lucide.createIcons();
+        }
+
+        /**
+         * Hlavní validační a simulační engine.
+         * Kontroluje všechny síťové vrstvy od PC přes R2 a R1 až k ISP a DNS.
+         */
+        function runNetworkSimulation() {
+            resetVisualStatus();
+
+            const logs = [];
+            let failedStep = null; // 'pc', 'r2', 'r1', 'isp'
+
+            // Načtení pevných parametrů ISP
+            const ispGwIpRaw = ispConfig.gwIp;
+            const ispGwMaskRaw = ispConfig.gwMask;
+            const ispDnsRaw = ispConfig.dnsIp;
+
+            const pcIpRaw = document.getElementById('pc-ip').value;
+            const pcMaskRaw = document.getElementById('pc-mask').value;
+            const pcGwRaw = document.getElementById('pc-gw').value;
+            const pcDnsRaw = document.getElementById('pc-dns').value;
+
+            const r2LanIpRaw = document.getElementById('r2-lan-ip').value;
+            const r2LanMaskRaw = document.getElementById('r2-lan-mask').value;
+            const r2WanIpRaw = document.getElementById('r2-wan-ip').value;
+            const r2WanMaskRaw = document.getElementById('r2-wan-mask').value;
+            const r2WanGwRaw = document.getElementById('r2-wan-gw').value;
+            const r2WanDnsRaw = document.getElementById('r2-wan-dns').value;
+
+            const r1LanIpRaw = document.getElementById('r1-lan-ip').value;
+            const r1LanMaskRaw = document.getElementById('r1-lan-mask').value;
+            const r1WanIpRaw = document.getElementById('r1-wan-ip').value;
+            const r1WanMaskRaw = document.getElementById('r1-wan-mask').value;
+            const r1WanGwRaw = document.getElementById('r1-wan-gw').value;
+            const r1WanDnsRaw = document.getElementById('r1-wan-dns').value;
+
+            // Analýza rozhraní
+            const isp = analyzeInterface(ispGwIpRaw, ispGwMaskRaw);
+            const ispDnsLong = ipToLong(ispDnsRaw);
+
+            const pc = analyzeInterface(pcIpRaw, pcMaskRaw);
+            const r2Lan = analyzeInterface(r2LanIpRaw, r2LanMaskRaw);
+            const r2Wan = analyzeInterface(r2WanIpRaw, r2WanMaskRaw);
+            const r1Lan = analyzeInterface(r1LanIpRaw, r1LanMaskRaw);
+            const r1Wan = analyzeInterface(r1WanIpRaw, r1WanMaskRaw);
+
+            // --- KROK 0: Kontrola nastavení ISP ---
+            if (!isp.valid || !isp.isHostUsable || ispDnsLong === null) {
+                logs.push({
+                    type: 'error',
+                    title: 'Neplatné parametry ISP',
+                    text: 'Zkontrolujte IP adresu a masku brány ISP nebo cílového DNS serveru ve spodní části stránky.'
+                });
+                animatePacketSequence('isp', false, logs);
+                return;
+            }
+
+            // --- KROK 1: Kontrola Klientského PC (vrstva 3 - lokální rozhraní a brána) ---
+            if (!pc.valid) {
+                logs.push({
+                    type: 'error',
+                    title: 'Chyba na Klientském PC (IP / Maska)',
+                    text: 'IPv4 adresa nebo maska podsítě klientského PC má neplatný formát (nebo chybí).'
+                });
+                const badFields = [];
+                if (ipToLong(pcIpRaw) === null) badFields.push('pc-ip');
+                if (parseSubnetMask(pcMaskRaw) === null) badFields.push('pc-mask');
+                highlightErrorFields(badFields.length ? badFields : ['pc-ip', 'pc-mask']);
+                failedStep = 'pc';
+            } else if (!pc.isHostUsable) {
+                logs.push({
+                    type: 'error',
+                    title: 'Chyba na Klientském PC (Rezervovaná adresa)',
+                    text: `Zadaná adresa ${pc.ipStr}/${pc.prefix} je ${pc.isNetworkAddress ? 'adresa sítě (Network ID)' : 'všesměrová adresa (Broadcast)'} a nelze ji přiřadit počítači.`
+                });
+                highlightErrorFields(['pc-ip']);
+                failedStep = 'pc';
+            } else if (ipToLong(pcGwRaw) === null) {
+                logs.push({
+                    type: 'error',
+                    title: 'Chyba na Klientském PC (Výchozí brána)',
+                    text: 'Klientské PC nemá nastavenou platnou IP adresu výchozí brány (Default Gateway), proto neví, kam posílat pakety mimo svou síť.'
+                });
+                highlightErrorFields(['pc-gw']);
+                failedStep = 'pc';
+            } else if (!isIpInSubnet(pcGwRaw, pc)) {
+                logs.push({
+                    type: 'error',
+                    title: 'Chyba na Klientském PC (Nedosažitelná brána)',
+                    text: `Výchozí brána PC (${pcGwRaw.trim()}) neleží ve stejné podsíti jako samotné PC (${pc.networkStr}/${pc.prefix}).`
+                });
+                highlightErrorFields(['pc-gw', 'pc-ip', 'pc-mask']);
+                failedStep = 'pc';
+            }
+
+            if (failedStep) {
+                animatePacketSequence(failedStep, false, logs);
+                return;
+            }
+
+            // --- KROK 2: Kontrola Routeru 2 (LAN 2 rozhraní a propojení s PC) ---
+            if (!r2Lan.valid || !r2Lan.isHostUsable) {
+                logs.push({
+                    type: 'error',
+                    title: 'Chyba na Routeru 2 (LAN rozhraní)',
+                    text: !r2Lan.valid
+                        ? 'Vnitřní rozhraní (LAN) Routeru 2 nemá platnou IP adresu nebo masku podsítě.'
+                        : `Adresa ${r2Lan.ipStr}/${r2Lan.prefix} na LAN rozhraní Routeru 2 je adresa sítě nebo broadcastu.`
+                });
+                const badFields = [];
+                if (ipToLong(r2LanIpRaw) === null || (r2Lan.valid && !r2Lan.isHostUsable)) badFields.push('r2-lan-ip');
+                if (parseSubnetMask(r2LanMaskRaw) === null) badFields.push('r2-lan-mask');
+                highlightErrorFields(badFields.length ? badFields : ['r2-lan-ip', 'r2-lan-mask']);
+                failedStep = 'r2';
+            } else if (!isSameSubnet(pc, r2Lan)) {
+                logs.push({
+                    type: 'error',
+                    title: 'Neshoda podsítě mezi PC a Routerem 2 (LAN)',
+                    text: `Klientské PC (${pc.ipStr}/${pc.prefix}, síť ${pc.networkStr}/${pc.prefix}) není ve stejné podsíti jako LAN rozhraní Routeru 2 (${r2Lan.ipStr}/${r2Lan.prefix}, síť ${r2Lan.networkStr}/${r2Lan.prefix}).`
+                });
+                highlightErrorFields(['pc-ip', 'pc-mask', 'r2-lan-ip', 'r2-lan-mask']);
+                failedStep = 'r2';
+            } else if (pc.ipLong === r2Lan.ipLong) {
+                logs.push({
+                    type: 'error',
+                    title: 'Konflikt IP adres v síti LAN 2',
+                    text: `Klientské PC i LAN rozhraní Routeru 2 mají shodnou IP adresu (${pc.ipStr}). Každé zařízení v síti musí mít unikátní IP.`
+                });
+                highlightErrorFields(['pc-ip', 'r2-lan-ip']);
+                failedStep = 'r2';
+            } else if (ipToLong(pcGwRaw) !== r2Lan.ipLong) {
+                logs.push({
+                    type: 'error',
+                    title: 'Špatná výchozí brána na Klientském PC',
+                    text: `Klientské PC má nastavenou bránu ${pcGwRaw.trim()}, ale LAN rozhraní Routeru 2 má adresu ${r2Lan.ipStr}. Paket se nedostane na router.`
+                });
+                highlightErrorFields(['pc-gw', 'r2-lan-ip']);
+                failedStep = 'r2';
+            } else if (currentScenario && (r2Lan.networkStr !== currentScenario.lan2RequiredNet || r2Lan.prefix !== currentScenario.lan2RequiredPrefix)) {
+                logs.push({
+                    type: 'error',
+                    title: 'Nesplněno zadání pro síť LAN 2',
+                    text: `Zadání vyžaduje pro síť mezi Routerem 2 a PC rozsah ${currentScenario.lan2RequiredNet}/${currentScenario.lan2RequiredPrefix}, ale nakonfigurována je síť ${r2Lan.networkStr}/${r2Lan.prefix}.`
+                });
+                highlightErrorFields(['r2-lan-ip', 'r2-lan-mask', 'pc-ip', 'pc-mask']);
+                failedStep = 'r2';
+            }
+
+            if (failedStep) {
+                animatePacketSequence(failedStep, false, logs);
+                return;
+            }
+
+            logs.push({
+                type: 'success',
+                title: '1. úsek OK: Klientské PC ↔ Router 2 (LAN)',
+                text: `PC (${pc.ipStr}/${pc.prefix}) úspěšně předalo paket své výchozí bráně na Routeru 2 (${r2Lan.ipStr}/${r2Lan.prefix}).`
+            });
+
+            // --- KROK 3: Kontrola Routeru 2 (WAN rozhraní, nekonfliktnost LAN/WAN a cesta k R1) ---
+            if (!r2Wan.valid || !r2Wan.isHostUsable) {
+                logs.push({
+                    type: 'error',
+                    title: 'Chyba na Routeru 2 (WAN rozhraní)',
+                    text: !r2Wan.valid
+                        ? 'Vnější rozhraní (WAN) Routeru 2 nemá platnou IP adresu nebo masku podsítě.'
+                        : `Adresa ${r2Wan.ipStr}/${r2Wan.prefix} na WAN rozhraní Routeru 2 je rezervovaná (síť/broadcast).`
+                });
+                const badFields = [];
+                if (ipToLong(r2WanIpRaw) === null || (r2Wan.valid && !r2Wan.isHostUsable)) badFields.push('r2-wan-ip');
+                if (parseSubnetMask(r2WanMaskRaw) === null) badFields.push('r2-wan-mask');
+                highlightErrorFields(badFields.length ? badFields : ['r2-wan-ip', 'r2-wan-mask']);
+                failedStep = 'r2';
+            } else if (subnetsOverlap(r2Lan, r2Wan)) {
+                logs.push({
+                    type: 'error',
+                    title: 'Kolize podsítí na Routeru 2 (WAN vs. LAN)',
+                    text: `Router nemůže směrovat mezi dvěma překrývajícími se podsítěmi! WAN (${r2Wan.networkStr}/${r2Wan.prefix}) a LAN (${r2Lan.networkStr}/${r2Lan.prefix}) na Routeru 2 kolidují.`
+                });
+                highlightErrorFields(['r2-wan-ip', 'r2-wan-mask', 'r2-lan-ip', 'r2-lan-mask']);
+                failedStep = 'r2';
+            } else if (ipToLong(r2WanGwRaw) === null) {
+                logs.push({
+                    type: 'error',
+                    title: 'Chybí výchozí brána na Routeru 2 (WAN)',
+                    text: 'Router 2 nemá nastavenou výchozí bránu (Default Gateway), takže neví, kudy odeslat pakety směrem do internetu.'
+                });
+                highlightErrorFields(['r2-wan-gw']);
+                failedStep = 'r2';
+            } else if (!isIpInSubnet(r2WanGwRaw, r2Wan)) {
+                logs.push({
+                    type: 'error',
+                    title: 'Nedosažitelná výchozí brána na Routeru 2',
+                    text: `Výchozí brána Routeru 2 (${r2WanGwRaw.trim()}) neleží v podsíti jeho WAN rozhraní (${r2Wan.networkStr}/${r2Wan.prefix}).`
+                });
+                highlightErrorFields(['r2-wan-gw', 'r2-wan-ip', 'r2-wan-mask']);
+                failedStep = 'r2';
+            }
+
+            if (failedStep) {
+                animatePacketSequence(failedStep, false, logs);
+                return;
+            }
+
+            // --- KROK 4: Kontrola Routeru 1 (LAN 1 rozhraní a propojení s R2 WAN) ---
+            if (!r1Lan.valid || !r1Lan.isHostUsable) {
+                logs.push({
+                    type: 'error',
+                    title: 'Chyba na Routeru 1 (LAN rozhraní)',
+                    text: !r1Lan.valid
+                        ? 'Vnitřní rozhraní (LAN) Routeru 1 nemá platnou IP adresu nebo masku podsítě.'
+                        : `Adresa ${r1Lan.ipStr}/${r1Lan.prefix} na LAN rozhraní Routeru 1 je rezervovaná (síť/broadcast).`
+                });
+                const badFields = [];
+                if (ipToLong(r1LanIpRaw) === null || (r1Lan.valid && !r1Lan.isHostUsable)) badFields.push('r1-lan-ip');
+                if (parseSubnetMask(r1LanMaskRaw) === null) badFields.push('r1-lan-mask');
+                highlightErrorFields(badFields.length ? badFields : ['r1-lan-ip', 'r1-lan-mask']);
+                failedStep = 'r1';
+            } else if (!isSameSubnet(r2Wan, r1Lan)) {
+                logs.push({
+                    type: 'error',
+                    title: 'Chyba na Routeru 2 (WAN) / Routeru 1 (LAN)',
+                    text: `WAN rozhraní Routeru 2 (${r2Wan.ipStr}/${r2Wan.prefix}) není ve stejné podsíti jako LAN rozhraní Routeru 1 (${r1Lan.ipStr}/${r1Lan.prefix}).`
+                });
+                highlightErrorFields(['r2-wan-ip', 'r2-wan-mask', 'r1-lan-ip', 'r1-lan-mask']);
+                failedStep = 'r1';
+            } else if (r2Wan.ipLong === r1Lan.ipLong) {
+                logs.push({
+                    type: 'error',
+                    title: 'Konflikt IP adres mezi Routerem 2 a Routerem 1',
+                    text: `WAN rozhraní Routeru 2 a LAN rozhraní Routeru 1 mají shodnou IP adresu (${r2Wan.ipStr}).`
+                });
+                highlightErrorFields(['r2-wan-ip', 'r1-lan-ip']);
+                failedStep = 'r1';
+            } else if (ipToLong(r2WanGwRaw) !== r1Lan.ipLong) {
+                logs.push({
+                    type: 'error',
+                    title: 'Špatná výchozí brána na Routeru 2',
+                    text: `Router 2 má nastavenou výchozí bránu ${r2WanGwRaw.trim()}, ale LAN rozhraní Routeru 1 má IP adresu ${r1Lan.ipStr}.`
+                });
+                highlightErrorFields(['r2-wan-gw', 'r1-lan-ip']);
+                failedStep = 'r1';
+            } else if (currentScenario && (r1Lan.networkStr !== currentScenario.lan1RequiredNet || r1Lan.prefix !== currentScenario.lan1RequiredPrefix)) {
+                logs.push({
+                    type: 'error',
+                    title: 'Nesplněno zadání pro síť LAN 1',
+                    text: `Zadání vyžaduje pro síť mezi Routerem 1 a Routerem 2 rozsah ${currentScenario.lan1RequiredNet}/${currentScenario.lan1RequiredPrefix}, ale nastavena je síť ${r1Lan.networkStr}/${r1Lan.prefix}.`
+                });
+                highlightErrorFields(['r1-lan-ip', 'r1-lan-mask', 'r2-wan-ip', 'r2-wan-mask']);
+                failedStep = 'r1';
+            }
+
+            if (failedStep) {
+                animatePacketSequence(failedStep, false, logs);
+                return;
+            }
+
+            logs.push({
+                type: 'success',
+                title: '2. úsek OK: Router 2 (WAN) ↔ Router 1 (LAN)',
+                text: `Router 2 provedl překlad adres (NAT) a odeslal paket přes své WAN rozhraní (${r2Wan.ipStr}) na bránu Routeru 1 (${r1Lan.ipStr}).`
+            });
+
+            // --- KROK 5: Kontrola Routeru 1 (WAN rozhraní a připojení k ISP) ---
+            if (!r1Wan.valid || !r1Wan.isHostUsable) {
+                logs.push({
+                    type: 'error',
+                    title: 'Chyba na Routeru 1 (WAN rozhraní)',
+                    text: !r1Wan.valid
+                        ? 'Vnější rozhraní (WAN) Routeru 1 nemá platnou IP adresu nebo masku podsítě.'
+                        : `Adresa ${r1Wan.ipStr}/${r1Wan.prefix} na WAN rozhraní Routeru 1 je rezervovaná (síť/broadcast).`
+                });
+                const badFields = [];
+                if (ipToLong(r1WanIpRaw) === null || (r1Wan.valid && !r1Wan.isHostUsable)) badFields.push('r1-wan-ip');
+                if (parseSubnetMask(r1WanMaskRaw) === null) badFields.push('r1-wan-mask');
+                highlightErrorFields(badFields.length ? badFields : ['r1-wan-ip', 'r1-wan-mask']);
+                failedStep = 'r1';
+            } else if (subnetsOverlap(r1Lan, r1Wan)) {
+                logs.push({
+                    type: 'error',
+                    title: 'Kolize podsítí na Routeru 1 (WAN vs. LAN)',
+                    text: `Na Routeru 1 se překrývá podsíť WAN (${r1Wan.networkStr}/${r1Wan.prefix}) s podsítí LAN (${r1Lan.networkStr}/${r1Lan.prefix}). Router nemůže směrovat.`
+                });
+                highlightErrorFields(['r1-wan-ip', 'r1-wan-mask', 'r1-lan-ip', 'r1-lan-mask']);
+                failedStep = 'r1';
+            } else if (!isSameSubnet(r1Wan, isp)) {
+                logs.push({
+                    type: 'error',
+                    title: 'Chyba na Routeru 1 (WAN): Neshoda se sítí ISP',
+                    text: `WAN rozhraní Routeru 1 (${r1Wan.ipStr}/${r1Wan.prefix}) neleží ve stejné podsíti jako brána poskytovatele ISP (${isp.ipStr}/${isp.prefix}, síť ${isp.networkStr}/${isp.prefix}).`
+                });
+                highlightErrorFields(['r1-wan-ip', 'r1-wan-mask']);
+                failedStep = 'r1';
+            } else if (r1Wan.ipLong === isp.ipLong) {
+                logs.push({
+                    type: 'error',
+                    title: 'Konflikt IP adresy s bránou ISP',
+                    text: `Router 1 (WAN) používá stejnou IP adresu (${r1Wan.ipStr}) jako brána poskytovatele internetu (ISP).`
+                });
+                highlightErrorFields(['r1-wan-ip']);
+                failedStep = 'r1';
+            } else if (ipToLong(r1WanGwRaw) !== isp.ipLong) {
+                logs.push({
+                    type: 'error',
+                    title: 'Špatná výchozí brána na Routeru 1 (WAN)',
+                    text: `Výchozí brána Routeru 1 (${r1WanGwRaw.trim() || 'nevyplněno'}) neodpovídá IP adrese brány ISP (${isp.ipStr}).`
+                });
+                highlightErrorFields(['r1-wan-gw']);
+                failedStep = 'r1';
+            }
+
+            if (failedStep) {
+                animatePacketSequence(failedStep, false, logs);
+                return;
+            }
+
+            logs.push({
+                type: 'success',
+                title: '3. úsek OK: Router 1 (WAN) ↔ Brána ISP',
+                text: `Router 1 odeslal paket ze svého WAN rozhraní (${r1Wan.ipStr}/${r1Wan.prefix}) přímo na bránu poskytovatele (${isp.ipStr}).`
+            });
+
+            // --- KROK 6: Kontrola dosažitelnosti a platnosti DNS na všech prvcích ---
+            const dnsChecks = [
+                { id: 'pc-dns', device: 'Klientské PC', val: pcDnsRaw, localSubnets: [pc] },
+                { id: 'r2-wan-dns', device: 'Router 2 (WAN)', val: r2WanDnsRaw, localSubnets: [r2Lan, r2Wan] },
+                { id: 'r1-wan-dns', device: 'Router 1 (WAN)', val: r1WanDnsRaw, localSubnets: [r1Lan, r1Wan] }
+            ];
+
+            for (const check of dnsChecks) {
+                const dnsLong = ipToLong(check.val);
+                if (dnsLong === null) {
+                    logs.push({
+                        type: 'error',
+                        title: `Chybějící nebo neplatný DNS server (${check.device})`,
+                        text: `Zařízení ${check.device} nemá nastavenou platnou IPv4 adresu DNS serveru (např. ${ispDnsRaw.trim()} nebo IP nadřazeného routeru).`
+                    });
+                    highlightErrorFields([check.id]);
+                    animatePacketSequence('isp', false, logs);
+                    return;
+                }
+                // DNS může ukazovat buď na veřejný DNS v internetu (dosažitelný přes výchozí bránu), nebo na lokální DNS proxy (IP LAN routeru)
+                const isPublicOrRoutable = dnsLong === ispDnsLong ||
+                    dnsLong === r1Lan.ipLong ||
+                    dnsLong === r2Lan.ipLong ||
+                    dnsLong === isp.ipLong ||
+                    // Obecně jakákoli validní unicast IP mimo síť/broadcast rozhraní je routovatelná přes default gateway
+                    (dnsLong !== 0 && dnsLong !== 0xFFFFFFFF);
+
+                if (!isPublicOrRoutable) {
+                    logs.push({
+                        type: 'error',
+                        title: `Nedosažitelný DNS server (${check.device})`,
+                        text: `Adresa DNS serveru ${check.val} na zařízení ${check.device} není platná cílová adresa.`
+                    });
+                    highlightErrorFields([check.id]);
+                    animatePacketSequence('isp', false, logs);
+                    return;
+                }
+            }
+
+            logs.push({
+                type: 'success',
+                title: '4. úsek OK: Dosažitelnost internetu a překlad DNS',
+                text: `Paket dorazil k cílovému serveru ${ispDnsRaw.trim()} a vrátil se zpět na PC. Všechny podsítě, brány i DNS záznamy jsou nastaveny správně!`
+            });
+
+            animatePacketSequence('isp', true, logs);
+        }
+
+        /**
+         * Animuje průchod paketu topologií zprava (Klientské PC) doleva (Internet / ISP).
+         */
+        function animatePacketSequence(stopNode, isSuccess, logs) {
+            const packet = document.getElementById('packet-element');
+            const badge = document.getElementById('packet-badge');
+            const label = document.getElementById('packet-label');
+
+            // Souřadnice uzlů v procentech šířky topologie (zprava doleva: PC -> R2 -> R1 -> ISP)
+            const positions = {
+                pc: '89%',
+                r2: '64%',
+                r1: '36%',
+                isp: '10%'
+            };
+
+            const order = ['pc', 'r2', 'r1', 'isp'];
+            const stopIndex = order.indexOf(stopNode);
+
+            // Výchozí pozice na PC (vpravo)
+            packet.style.left = positions.pc;
+            badge.className = 'px-2.5 py-1 rounded-full bg-blue-600 text-white text-[11px] font-bold shadow-lg flex items-center gap-1 border-2 border-white whitespace-nowrap';
+            label.textContent = 'ICMP Ping...';
+            packet.classList.remove('hidden');
+
+            let step = 0;
+
+            function advanceStep() {
+                const currentNode = order[step];
+
+                if (step < stopIndex) {
+                    // Úspěšný průchod tímto uzlem dál
+                    markNodeStatus(currentNode, 'success');
+                    if (step === 0) markLinkSuccess('link-pc-r2');
+                    if (step === 1) markLinkSuccess('link-r2-r1');
+                    if (step === 2) markLinkSuccess('link-r1-isp');
+
+                    step++;
+                    packet.style.left = positions[order[step]];
+                    simulationTimer = setTimeout(advanceStep, 650);
+                } else {
+                    // Jsme v cílovém nebo chybovém uzlu
+                    if (isSuccess) {
+                        markNodeStatus(currentNode, 'success');
+                        badge.className = 'px-3 py-1 rounded-full bg-emerald-600 text-white text-[11px] font-bold shadow-lg flex items-center gap-1 border-2 border-white whitespace-nowrap';
+                        label.textContent = '✓ Pong (OK)';
+                        renderDiagnostics(logs, 'Připojení k internetu je funkční!', 'success');
+                    } else {
+                        markNodeStatus(currentNode, 'error');
+                        badge.className = 'px-3 py-1 rounded-full bg-rose-600 text-white text-[11px] font-bold shadow-lg flex items-center gap-1 border-2 border-white whitespace-nowrap';
+                        label.textContent = '✕ Paket zahozen';
+                        renderDiagnostics(logs, 'Nalezena chyba v konfiguraci sítě', 'error');
+                    }
+                }
+            }
+
+            // Krátká prodleva před rozjezdem animace
+            simulationTimer = setTimeout(advanceStep, 120);
+        }
+
+        function markNodeStatus(node, status) {
+            const iconEl = document.getElementById(`status-icon-${node}`);
+            const cardNode = document.getElementById(`node-${node}`);
+
+            cardNode.classList.remove('border-slate-300', 'border-emerald-500', 'border-rose-500', 'ring-2', 'ring-rose-500/20', 'ring-emerald-500/20');
+
+            if (status === 'success') {
+                cardNode.classList.add('border-emerald-500', 'ring-2', 'ring-emerald-500/20');
+                iconEl.className = 'w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs shadow-sm shrink-0';
+                iconEl.innerHTML = '<i data-lucide="check" class="w-3.5 h-3.5 stroke-[3]"></i>';
+            } else {
+                cardNode.classList.add('border-rose-500', 'ring-2', 'ring-rose-500/20');
+                iconEl.className = 'w-5 h-5 rounded-full bg-rose-600 text-white flex items-center justify-center text-xs shadow-sm shrink-0';
+                iconEl.innerHTML = '<i data-lucide="x" class="w-3.5 h-3.5 stroke-[3]"></i>';
+            }
+            lucide.createIcons();
+        }
+
+        function markLinkSuccess(linkId) {
+            const line = document.getElementById(linkId);
+            line.classList.remove('bg-slate-300', 'bg-rose-500');
+            line.classList.add('bg-emerald-500');
+        }
+
+        // =========================================================================
+        // POMOCNÉ FUNKCE PRO IPv4 ADRESACI A PODSÍTĚ
+        // =========================================================================
+
+        /**
+         * Převede IPv4 adresu ve formátu řetězce (např. "192.168.1.1") na 32bitové bezznaménkové číslo.
+         * Vrací null, pokud formát není platný.
+         */
+        function ipToLong(ipStr) {
+            if (typeof ipStr !== 'string') return null;
+            const trimmed = ipStr.trim();
+            const parts = trimmed.split('.');
+            if (parts.length !== 4) return null;
+
+            let result = 0;
+            for (let i = 0; i < 4; i++) {
+                if (!/^\d+$/.test(parts[i])) return null;
+                if (parts[i].length > 1 && parts[i].startsWith('0')) return null; // Zákaz úvodních nul
+                const num = Number(parts[i]);
+                if (num < 0 || num > 255) return null;
+                result = (result * 256) + num;
+            }
+            return result >>> 0;
+        }
+
+        /**
+         * Převede 32bitové bezznaménkové číslo zpět na řetězec IPv4 adresy.
+         */
+        function longToIp(longVal) {
+            return [
+                (longVal >>> 24) & 255,
+                (longVal >>> 16) & 255,
+                (longVal >>> 8) & 255,
+                longVal & 255
+            ].join('.');
+        }
+
+        /**
+         * Zparsuje masku podsítě zadanou buď jako CIDR ("/24" nebo "24"), nebo dekadicky ("255.255.255.0").
+         * Vrací objekt { prefix, maskLong, maskStr } nebo null při neplatné masce.
+         */
+        function parseSubnetMask(maskInput) {
+            if (typeof maskInput !== 'string') return null;
+            const trimmed = maskInput.trim();
+            if (!trimmed) return null;
+
+            // 1. Formát CIDR (např. "/24" nebo "24")
+            if (trimmed.startsWith('/') || /^\d{1,2}$/.test(trimmed)) {
+                const rawNum = trimmed.startsWith('/') ? trimmed.slice(1) : trimmed;
+                if (!/^\d+$/.test(rawNum)) return null;
+                const prefix = Number(rawNum);
+                if (prefix < 1 || prefix > 30) return null;
+                const maskLong = (prefix === 0 ? 0 : (0xFFFFFFFF << (32 - prefix))) >>> 0;
+                return {
+                    prefix,
+                    maskLong,
+                    maskStr: longToIp(maskLong)
+                };
+            }
+
+            // 2. Dekadický formát (např. "255.255.255.0")
+            const maskLong = ipToLong(trimmed);
+            if (maskLong === null) return null;
+
+            // Ověření souvislé řady jedniček zleva
+            let prefix = 0;
+            let seenZero = false;
+            for (let bit = 31; bit >= 0; bit--) {
+                const isOne = ((maskLong >>> bit) & 1) === 1;
+                if (isOne) {
+                    if (seenZero) return null; // Neplatná nesouvislá maska
+                    prefix++;
+                } else {
+                    seenZero = true;
+                }
+            }
+
+            if (prefix < 1 || prefix > 30) return null;
+
+            return {
+                prefix,
+                maskLong,
+                maskStr: longToIp(maskLong)
+            };
+        }
+
+        /**
+         * Komplexně zanalyzuje IPv4 adresu a masku síťového rozhraní.
+         */
+        function analyzeInterface(ipInput, maskInput) {
+            const ipLong = ipToLong(ipInput);
+            const maskInfo = parseSubnetMask(maskInput);
+
+            if (ipLong === null || maskInfo === null) {
+                return { valid: false };
+            }
+
+            const networkLong = (ipLong & maskInfo.maskLong) >>> 0;
+            const broadcastLong = (networkLong | (~maskInfo.maskLong >>> 0)) >>> 0;
+            const isNetworkAddress = ipLong === networkLong;
+            const isBroadcastAddress = ipLong === broadcastLong;
+            const isHostUsable = !isNetworkAddress && !isBroadcastAddress;
+
+            return {
+                valid: true,
+                ipStr: longToIp(ipLong),
+                ipLong,
+                prefix: maskInfo.prefix,
+                maskLong: maskInfo.maskLong,
+                maskStr: maskInfo.maskStr,
+                networkLong,
+                networkStr: longToIp(networkLong),
+                broadcastLong,
+                broadcastStr: longToIp(broadcastLong),
+                isNetworkAddress,
+                isBroadcastAddress,
+                isHostUsable
+            };
+        }
+
+        /**
+         * Ověří, zda dvě rozhraní leží ve shodné podsíti (stejná síťová adresa i délka masky).
+         */
+        function isSameSubnet(ifaceA, ifaceB) {
+            if (!ifaceA.valid || !ifaceB.valid) return false;
+            return ifaceA.networkLong === ifaceB.networkLong && ifaceA.prefix === ifaceB.prefix;
+        }
+
+        /**
+         * Ověří, zda zadaná IP adresa leží uvnitř podsítě daného rozhraní.
+         */
+        function isIpInSubnet(ipStr, iface) {
+            if (!iface.valid) return false;
+            const targetLong = ipToLong(ipStr);
+            if (targetLong === null) return false;
+            return ((targetLong & iface.maskLong) >>> 0) === iface.networkLong;
+        }
+
+        /**
+         * Zjistí, zda se dvě podsítě adresně překrývají.
+         */
+        function subnetsOverlap(ifaceA, ifaceB) {
+            if (!ifaceA.valid || !ifaceB.valid) return false;
+            return ifaceA.networkLong <= ifaceB.broadcastLong && ifaceB.networkLong <= ifaceA.broadcastLong;
+        }
+
+        /**
+         * Inicializuje tlačítko křížku (×) uvnitř všech textových polí pro rychlé smazání hodnoty.
+         */
+        function initClearButtons() {
+            const inputs = document.querySelectorAll('#topology-container input[type="text"]');
+            inputs.forEach(input => {
+                if (input.parentElement.classList.contains('input-clear-wrapper')) return;
+
+                const wrapper = document.createElement('div');
+                wrapper.className = 'relative input-clear-wrapper';
+                input.parentNode.insertBefore(wrapper, input);
+                wrapper.appendChild(input);
+
+                input.classList.add('pr-7');
+
+                const clearBtn = document.createElement('button');
+                clearBtn.type = 'button';
+                clearBtn.tabIndex = -1;
+                clearBtn.title = 'Vymazat pole';
+                clearBtn.className = 'clear-field-btn hidden absolute right-1.5 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200 hover:bg-rose-500 text-slate-600 hover:text-white flex items-center justify-center text-[11px] font-bold leading-none transition cursor-pointer';
+                clearBtn.innerHTML = '&times;';
+
+                clearBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    input.value = '';
+                    input.classList.remove('input-error');
+                    input.focus();
+                    onConfigChange();
+                });
+
+                wrapper.appendChild(clearBtn);
+            });
+            updateClearButtonsVisibility();
+        }
+
+        /**
+         * Zobrazí tlačítko křížku pouze u polí, která obsahují nějaký text.
+         */
+        function updateClearButtonsVisibility() {
+            document.querySelectorAll('.input-clear-wrapper').forEach(wrapper => {
+                const input = wrapper.querySelector('input');
+                const btn = wrapper.querySelector('.clear-field-btn');
+                if (input && btn) {
+                    if (input.value.length > 0) {
+                        btn.classList.remove('hidden');
+                    } else {
+                        btn.classList.add('hidden');
+                    }
+                }
+            });
+        }
+
+        /**
+         * Zvýrazní konkrétní chybná vstupní pole červeným rámečkem.
+         */
+        function highlightErrorFields(fieldIds) {
+            fieldIds.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.classList.add('input-error');
+                }
+            });
+        }
+
+        /**
+         * Odstraní červené zvýraznění ze všech vstupních polí.
+         */
+        function clearAllInputErrors() {
+            document.querySelectorAll('.input-error').forEach(el => {
+                el.classList.remove('input-error');
+            });
+        }
+
+        /**
+         * Aktualizuje zobrazení pevných parametrů ISP v levém uzlu topologie.
+         */
+        function updateIspDisplay() {
+            const gwEl = document.getElementById('display-isp-gw');
+            const maskEl = document.getElementById('display-isp-mask');
+            const dnsEl = document.getElementById('display-isp-dns');
+
+            if (gwEl) gwEl.textContent = ispConfig.gwIp;
+            if (maskEl) {
+                const parsed = parseSubnetMask(ispConfig.gwMask);
+                maskEl.textContent = parsed ? `/${parsed.prefix} (${parsed.maskStr})` : ispConfig.gwMask;
+            }
+            if (dnsEl) dnsEl.textContent = ispConfig.dnsIp;
+        }
+
+        /**
+         * Přepíná viditelnost pomocné kalkulačky adresy sítě a broadcastu u jednotlivých rozhraní.
+         */
+        function toggleHints() {
+            hintsVisible = !hintsVisible;
+            document.querySelectorAll('.subnet-hint').forEach(el => {
+                el.classList.toggle('hidden', !hintsVisible);
+            });
+            const btnText = document.getElementById('hint-btn-text');
+            if (btnText) {
+                btnText.textContent = hintsVisible ? 'Skrýt kalkulačku sítí' : 'Zobrazit kalkulačku sítí';
+            }
+        }
+
+        /**
+         * Vykreslí přehledné diagnostické zprávy do logu.
+         */
+        function renderDiagnostics(items, badgeText, overallState) {
+            const container = document.getElementById('diagnostics-log');
+            const badge = document.getElementById('diag-summary-badge');
+
+            badge.textContent = badgeText;
+            if (overallState === 'success') {
+                badge.className = 'text-xs font-bold px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300';
+            } else if (overallState === 'error') {
+                badge.className = 'text-xs font-bold px-3 py-1 rounded-full bg-rose-100 text-rose-800 border border-rose-300';
+            } else {
+                badge.className = 'text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600';
+            }
+
+            container.innerHTML = items.map(item => {
+                if (item.type === 'success') {
+                    return `
+                        <div class="p-3 rounded-xl bg-emerald-50/80 border border-emerald-200 text-emerald-950 flex items-start gap-3">
+                            <i data-lucide="check-circle-2" class="w-5 h-5 text-emerald-600 shrink-0 mt-0.5"></i>
+                            <div>
+                                <div class="font-bold text-sm text-emerald-900">${item.title}</div>
+                                <div class="text-xs sm:text-sm text-emerald-800 mt-0.5">${item.text}</div>
+                            </div>
+                        </div>
+                    `;
+                } else if (item.type === 'error') {
+                    return `
+                        <div class="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-950 flex items-start gap-3 shadow-sm">
+                            <i data-lucide="alert-circle" class="w-5 h-5 text-rose-600 shrink-0 mt-0.5"></i>
+                            <div>
+                                <div class="font-bold text-sm text-rose-900">${item.title}</div>
+                                <div class="text-xs sm:text-sm text-rose-800 mt-0.5">${item.text}</div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    return `
+                        <div class="p-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-700 flex items-start gap-3">
+                            <i data-lucide="info" class="w-5 h-5 text-blue-600 shrink-0 mt-0.5"></i>
+                            <div>
+                                <div class="font-bold text-sm text-slate-900">${item.title}</div>
+                                <div class="text-xs sm:text-sm text-slate-600 mt-0.5">${item.text}</div>
+                            </div>
+                        </div>
+                    `;
+                }
+            }).join('');
+
+            lucide.createIcons();
+        }
+    </script>
+</body>
+</html>

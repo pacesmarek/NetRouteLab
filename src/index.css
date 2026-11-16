@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, monospace;
+}
+
+html { font-size: 18px; }
+body { background: #f8fafc; color: #1e293b; font-family: var(--font-sans); }
+button { cursor: pointer; }
+
+@keyframes panel-in-right { from { opacity: 0; transform: translateX(-2.5rem); } to { opacity: 1; transform: none; } }
+@keyframes panel-in-left  { from { opacity: 0; transform: translateX(2.5rem); }  to { opacity: 1; transform: none; } }
+@keyframes sheet-in       { from { opacity: 0; transform: translateY(2rem); }    to { opacity: 1; transform: none; } }
+.animate-panel-right { animation: panel-in-right .4s cubic-bezier(.2, .8, .2, 1) both; }
+.animate-panel-left  { animation: panel-in-left .4s cubic-bezier(.2, .8, .2, 1) both; }
+.animate-sheet       { animation: sheet-in .3s ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-panel-right, .animate-panel-left, .animate-sheet { animation: none; }
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: #f1f5f9; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
