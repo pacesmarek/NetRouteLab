@@ -42,8 +42,8 @@ export default function SetupPanel(p: PanelProps) {
   const dev = p.device;
   const head = dev
     ? {
-        bg: dev.kind === 'camera' ? 'bg-rose-900' : dev.kind === 'webserver' ? 'bg-amber-900' : 'bg-slate-800 dark:bg-slate-700',
-        icon: dev.kind === 'camera' ? <Video className="w-5 h-5 text-rose-300" /> : dev.kind === 'webserver' ? <Globe className="w-5 h-5 text-amber-300" /> : <Monitor className="w-5 h-5 text-emerald-400" />,
+        bg: dev.kind === 'camera' ? 'bg-violet-900' : dev.kind === 'webserver' ? 'bg-violet-900' : 'bg-slate-800 dark:bg-slate-700',
+        icon: dev.kind === 'camera' ? <Video className="w-5 h-5 text-violet-300" /> : dev.kind === 'webserver' ? <Globe className="w-5 h-5 text-violet-300" /> : <Monitor className="w-5 h-5 text-emerald-400" />,
         title: `Nastavení – ${dev.name}`,
       }
     : FIXED_HEAD[p.node];
@@ -131,8 +131,8 @@ type Tone = 'wan' | 'lan' | 'pat' | 'svc';
 const TONES: Record<Tone, { bg: string; line: string; text: string; dot: string; side: string; ring: string }> = {
   wan: { bg: 'bg-blue-50/50 dark:bg-blue-950/30', line: 'border-blue-200 dark:border-blue-800', text: 'text-blue-800 dark:text-blue-200', dot: 'bg-blue-600', side: 'text-blue-600 dark:text-blue-400', ring: 'focus:ring-blue-500' },
   lan: { bg: 'bg-emerald-50/50 dark:bg-emerald-950/30', line: 'border-emerald-200 dark:border-emerald-800', text: 'text-emerald-800 dark:text-emerald-200', dot: 'bg-emerald-500', side: 'text-emerald-700 dark:text-emerald-300', ring: 'focus:ring-emerald-500' },
-  pat: { bg: 'bg-amber-50/50 dark:bg-amber-950/30', line: 'border-amber-200 dark:border-amber-800', text: 'text-amber-800 dark:text-amber-200', dot: 'bg-amber-500', side: 'text-amber-700 dark:text-amber-300', ring: 'focus:ring-amber-500' },
-  svc: { bg: 'bg-rose-50/40 dark:bg-rose-950/30', line: 'border-rose-200 dark:border-rose-800', text: 'text-rose-800 dark:text-rose-200', dot: 'bg-rose-500', side: 'text-rose-700 dark:text-rose-300', ring: 'focus:ring-rose-500' },
+  pat: { bg: 'bg-violet-50/50 dark:bg-violet-950/30', line: 'border-violet-200 dark:border-violet-800', text: 'text-violet-800 dark:text-violet-200', dot: 'bg-violet-500', side: 'text-violet-700 dark:text-violet-300', ring: 'focus:ring-violet-500' },
+  svc: { bg: 'bg-violet-50/50 dark:bg-violet-950/30', line: 'border-violet-200 dark:border-violet-800', text: 'text-violet-800 dark:text-violet-200', dot: 'bg-violet-500', side: 'text-violet-700 dark:text-violet-300', ring: 'focus:ring-violet-500' },
 };
 
 function Section({ tone, step, title, side, action, children }: { tone: Tone; step?: number; title: string; side?: string; action?: ReactNode; children: ReactNode }) {
@@ -222,7 +222,7 @@ function PatSection(p: PanelProps & { router: RouterId }) {
       step={3}
       title="PAT – přesměrování portů"
       action={
-        <button type="button" onClick={() => p.onAddRule(r)} className="inline-flex items-center gap-1 text-xs font-bold text-amber-900 dark:text-amber-100 bg-surface border border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/50 rounded-md px-2 py-1 transition">
+        <button type="button" onClick={() => p.onAddRule(r)} className="inline-flex items-center gap-1 text-xs font-bold text-violet-900 dark:text-violet-100 bg-surface border border-violet-300 dark:border-violet-700 hover:bg-violet-100 dark:hover:bg-violet-900/50 rounded-md px-2 py-1 transition">
           <Plus className="w-3.5 h-3.5" /> Pravidlo
         </button>
       }
@@ -233,7 +233,7 @@ function PatSection(p: PanelProps & { router: RouterId }) {
           : 'Příchozí spojení na tento port přesměruj na zařízení v LAN 2 (IP a port služby).'}
       </p>
       {ids.length === 0 ? (
-        <div className="text-sm text-ink-4 italic border border-dashed border-amber-300 dark:border-amber-700 rounded-lg px-3 py-3 text-center">Žádné pravidlo – příchozí spojení se zahodí.</div>
+        <div className="text-sm text-ink-4 italic border border-dashed border-violet-300 dark:border-violet-700 rounded-lg px-3 py-3 text-center">Žádné pravidlo – příchozí spojení se zahodí.</div>
       ) : (
         <div className="space-y-2">
           <div className="grid grid-cols-[5.5rem_1fr_5.5rem_1.75rem] gap-2 text-[0.7rem] font-semibold uppercase tracking-wide text-ink-3 px-0.5">
@@ -304,7 +304,7 @@ function ServiceSection(p: PanelProps & { device: Device }) {
           <div className="font-mono text-sm break-all bg-surface border border-line rounded-lg px-3 py-2.5 text-ink">{url}</div>
         </div>
       </div>
-      <button type="button" onClick={() => p.onTestInbound(d.id)} className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-base font-bold transition">
+      <button type="button" onClick={() => p.onTestInbound(d.id)} className={`w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-base font-bold transition`}>
         <Globe className="w-5 h-5" /> Otestovat přístup z internetu
       </button>
     </Section>
@@ -369,7 +369,7 @@ function MiniField({ id, label, value, onChange, error, placeholder }: { id: Fie
         autoComplete="off"
         spellCheck={false}
         onChange={(e) => onChange(e.target.value)}
-        className={`${inputBase} px-2.5 py-2 text-base focus:ring-amber-500 ${inputState(error)}`}
+        className={`${inputBase} px-2.5 py-2 text-base focus:ring-violet-500 ${inputState(error)}`}
       />
     </div>
   );

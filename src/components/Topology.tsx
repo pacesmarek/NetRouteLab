@@ -155,8 +155,8 @@ export default function Topology(p: Props) {
       case 'pc': return { name: 'Klientské PC', sub: 'Koncová stanice (zdroj Ping)', art: <PcArt />, tint: 'bg-surface-3', idleIcon: 'minus', idleClass: 'bg-slate-700 text-slate-100' };
     }
     const d = deviceOf(id)!;
-    if (d.kind === 'camera') return { name: d.name, sub: `Kamera · ${KIND_INFO.camera.service} ${KIND_INFO.camera.port}`, art: <CameraArt />, tint: 'bg-rose-50 dark:bg-rose-950/50', idleIcon: 'minus', idleClass: 'bg-rose-800 text-rose-100' };
-    if (d.kind === 'webserver') return { name: d.name, sub: `Web server · ${KIND_INFO.webserver.service} ${KIND_INFO.webserver.port}`, art: <ServerArt />, tint: 'bg-amber-50 dark:bg-amber-950/50', idleIcon: 'minus', idleClass: 'bg-amber-800 text-amber-100' };
+    if (d.kind === 'camera') return { name: d.name, sub: `Kamera · ${KIND_INFO.camera.service} ${KIND_INFO.camera.port}`, art: <CameraArt />, tint: 'bg-violet-50 dark:bg-violet-950/50', idleIcon: 'minus', idleClass: 'bg-violet-800 text-violet-100' };
+    if (d.kind === 'webserver') return { name: d.name, sub: `Web server · ${KIND_INFO.webserver.service} ${KIND_INFO.webserver.port}`, art: <ServerArt />, tint: 'bg-violet-50 dark:bg-violet-950/50', idleIcon: 'minus', idleClass: 'bg-violet-800 text-violet-100' };
     return { name: d.name, sub: 'Koncová stanice', art: <PcArt />, tint: 'bg-surface-3', idleIcon: 'minus', idleClass: 'bg-slate-700 text-slate-100' };
   };
 

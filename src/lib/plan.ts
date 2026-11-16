@@ -91,7 +91,9 @@ export function solve(isp: IspConfig, scenario: Scenario | null, devices: Device
 
   const rules = emptyRules();
   const pub: Record<string, number> = {};
-  let serverIdx = 0;
+  // veřejné porty: kamery 8081, 8082, 8083…; web server 8080 (další web servery 9080, 9081…)
+  let cameraIdx = 0;
+  let webIdx = 0;
   for (const d of devices) {
     const ip = alloc();
     cfg[`${d.id}-ip`] = ip;
@@ -99,7 +101,7 @@ export function solve(isp: IspConfig, scenario: Scenario | null, devices: Device
     cfg[`${d.id}-gw`] = p.r2Lan;
     cfg[`${d.id}-dns`] = p.dns;
     if (isServer(d)) {
-      const port = 8080 + serverIdx++;
+      const port = d.kind === 'camera' ? 8081 + cameraIdx++ : webIdx === 0 ? (webIdx++, 8080) : 9080 + webIdx++ - 1;
       pub[d.id] = port;
       cfg[`${d.id}-pub`] = String(port);
       rules.r1.push(d.id);

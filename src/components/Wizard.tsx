@@ -408,7 +408,7 @@ export default function Wizard({ cfg, isp, scenario, cidr, devices, onFill, onEn
 
           {step.extra?.map((x) => (
             <button key={x.id} onClick={() => onRunInbound(x.id)}
-              className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 text-sm font-bold rounded-lg bg-rose-600 text-white hover:bg-rose-700 transition">
+              className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 text-sm font-bold rounded-lg bg-violet-600 text-white hover:bg-violet-700 transition">
               {x.label}
             </button>
           ))}

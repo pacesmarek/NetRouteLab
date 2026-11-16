@@ -19,13 +19,13 @@ const ITEMS: Item[] = [
   },
   {
     kind: 'camera', title: 'Kamera', sub: 'RTSP · port 554', icon: <Video className="w-6 h-6" />,
-    tile: 'border-rose-300 dark:border-rose-700 dark:border-rose-800 hover:border-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/50',
-    badge: 'bg-rose-600 text-white',
+    tile: 'border-violet-300 dark:border-violet-800 hover:border-violet-500 hover:bg-violet-50 dark:hover:bg-violet-950/50',
+    badge: 'bg-violet-600 text-white',
   },
   {
     kind: 'webserver', title: 'Web server', sub: 'HTTP · port 80', icon: <Globe className="w-6 h-6" />,
-    tile: 'border-amber-300 dark:border-amber-700 dark:border-amber-800 hover:border-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/50',
-    badge: 'bg-amber-600 text-white',
+    tile: 'border-violet-300 dark:border-violet-800 hover:border-violet-500 hover:bg-violet-50 dark:hover:bg-violet-950/50',
+    badge: 'bg-violet-600 text-white',
   },
 ];
 

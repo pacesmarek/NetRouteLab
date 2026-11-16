@@ -385,7 +385,7 @@ export default function App() {
             <div className="flex flex-wrap items-center gap-4 text-sm font-medium mb-3 px-1">
               <span className="flex items-center gap-1.5"><span className="w-3.5 h-3.5 rounded-sm bg-blue-100 dark:bg-blue-900/50 border border-blue-400 dark:border-blue-600 inline-block" /> WAN port (vnější)</span>
               <span className="flex items-center gap-1.5"><span className="w-3.5 h-3.5 rounded-sm bg-emerald-100 dark:bg-emerald-900/50 border border-emerald-400 dark:border-emerald-600 inline-block" /> LAN port (vnitřní)</span>
-              <span className="flex items-center gap-1.5"><span className="w-3.5 h-3.5 rounded-sm bg-amber-100 dark:bg-amber-900/50 border border-amber-400 dark:border-amber-600 inline-block" /> PAT (přesměrování portů)</span>
+              <span className="flex items-center gap-1.5"><span className="w-3.5 h-3.5 rounded-sm bg-violet-100 dark:bg-violet-900/50 border border-violet-400 dark:border-violet-600 inline-block" /> PAT (přesměrování portů)</span>
             </div>
             <Topology
               devices={devices}

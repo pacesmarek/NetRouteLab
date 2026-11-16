@@ -103,6 +103,18 @@ describe('řešení z průvodce', () => {
   }
 });
 
+describe('veřejné porty v řešení', () => {
+  it('kamery 8081, 8082, …; web server 8080', () => {
+    const ds: Device[] = [
+      { id: 'dev-1', kind: 'camera', name: 'K1' }, { id: 'dev-2', kind: 'webserver', name: 'W1' },
+      { id: 'dev-3', kind: 'camera', name: 'K2' }, { id: 'dev-4', kind: 'camera', name: 'K3' },
+      { id: 'dev-5', kind: 'webserver', name: 'W2' },
+    ];
+    const sol = solve(DEFAULT_ISP, null, ds, false);
+    expect(ds.map((d) => sol.pub[d.id])).toEqual([8081, 8080, 8082, 8083, 9080]);
+  });
+});
+
 describe('přidaná zařízení a PAT', () => {
   const devs: Device[] = [
     { id: 'dev-1', kind: 'camera', name: 'Kamera 1' },
