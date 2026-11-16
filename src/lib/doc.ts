@@ -13,7 +13,7 @@ export interface Doc {
   mode: Mode;
 }
 
-export const DEV_SUFFIXES = ['ip', 'mask', 'gw', 'dns', 'pub'] as const;
+export const DEV_SUFFIXES = ['ip', 'mask', 'gw', 'dns', 'pub', 'dhcp'] as const;
 
 export const emptyDoc = (): Doc => ({
   cfg: emptyConfig(),
@@ -47,6 +47,7 @@ export function docForScenario(scenario: Scenario | null): Doc {
     made.push(dev);
     if (spec.behind !== undefined && made[spec.behind]) doc.uplinks[dev.id] = made[spec.behind].id;
     for (const f of fieldsOfDevice(dev)) doc.cfg[f] = '';
+    if (spec.dhcp && hasIp(dev)) doc.cfg[`${dev.id}-dhcp`] = '1';
   });
   doc.devices = made;
   return doc;

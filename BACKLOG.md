@@ -24,7 +24,6 @@ Seznam nápadů na další funkce. Postupně je odbavujeme, doplňujeme a přeš
 | ID | Priorita | Stav | Nápad | Poznámka |
 |----|----------|------|-------|----------|
 | B-10 | 🟡 | nápad | **Rozšířená kalkulačka sítí** | Rozsah použitelných adres, počet hostů, převod masky ↔ prefix, binární zápis. Teď ukazuje jen síť a broadcast. |
-| B-12 | 🟡 | nápad | **DHCP na Routeru 2** | Rozsah adres; zařízení si IP, bránu a DNS vezmou automaticky. |
 | B-13 | ⚪ | nápad | **Firewall pravidla** | Povolit / zakázat port; ukáže rozdíl „router přeloží“ × „router pustí“. |
 | B-14 | ⚪ | nápad | **Další zařízení** | Tiskárna a další koncová zařízení. Switch a Wi-Fi AP už jsou hotové (viz Hotovo). |
 | B-15 | 🟡 | nápad | **VLSM úloha** | Rozdělit blok na podsítě podle počtu hostů („50, 20 a 10 stanic“), kontrola překryvů. |
@@ -74,6 +73,8 @@ _nic_
 | 2026-11-16 | Volitelný zvuk a rychlost animace (Rychle / Normální / Pomalu pro výklad) |
 | 2026-11-16 | Seznam úloh s možností spustit libovolné zadání; nové úlohy #5 a #6 |
 | 2026-11-16 | Changelog a číslo verze v aplikaci; vysvětlení tlačítka „Kalkulačka sítí“ |
+| 2026-11-16 | DHCP server na Routeru 2 a automatické získání adresy u zařízení (verze 1.3.0); úloha #7 |
+| 2026-11-16 | Přetahování nových zařízení z panelu přímo na plochu |
 
 ## Zamítnuto
 

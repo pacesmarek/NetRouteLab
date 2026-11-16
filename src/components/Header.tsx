@@ -1,5 +1,6 @@
 import { Calculator, CheckCircle2, Compass, CircleHelp, Download, FileUp, Image as ImageIcon, Link2, ListChecks, Moon, Redo2, Settings, Share2, Shuffle, Sun, Trash2, Undo2 } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import Toggle from './Toggle';
 
 export type FontKey = 'normal' | 'large' | 'board';
 export type ThemeKey = 'light' | 'dark' | 'system';
@@ -183,10 +184,10 @@ function Segmented<T extends string>({ value, options, onChange }: { value: T; o
 
 function Check({ checked, onChange, title, children }: { checked: boolean; onChange: (v: boolean) => void; title: string; children: ReactNode }) {
   return (
-    <label className="flex items-start gap-3 cursor-pointer">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="mt-1 w-5 h-5 rounded border-line-strong text-blue-600 dark:text-blue-400 focus:ring-blue-500" />
+    <div className="flex items-start gap-3">
+      <Toggle checked={checked} onChange={onChange} label={title} onColor="bg-blue-600" />
       <span className="text-sm text-ink leading-snug"><strong className="block text-ink">{title}</strong>{children}</span>
-    </label>
+    </div>
   );
 }
 

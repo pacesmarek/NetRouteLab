@@ -1,5 +1,5 @@
 import { ClipboardList, Network, Play, Route } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { APP_VERSION } from './changelog';
 import ChangelogDialog from './components/ChangelogDialog';
 import { CARD_H, CARD_W, type Status } from './components/DeviceCard';
@@ -13,6 +13,7 @@ import { useHistory, useLocalStorage, useViewportRem } from './hooks';
 import {
   assignmentOf, decodeDoc, docForScenario, emptyDoc, encodeDoc, fieldsOfDevice, nextDeviceNumber, sanitizeDoc, shareUrl, type Doc,
 } from './lib/doc';
+import { resolveDhcp } from './lib/dhcp';
 import { fmtMask, ipMask } from './lib/format';
 import { inboundPath, linksOfPath, pingPath, traceHops } from './lib/graph';
 import {
@@ -90,6 +91,9 @@ export default function App() {
   const wide = viewRem >= 80;
   const cols = viewRem >= 62 ? 3 : viewRem >= 40 ? 2 : 1;
   const fmt = useCallback((a: string, p: number) => ipMask(a, p, cidr), [cidr]);
+  /** adresy přidělené DHCP serverem na Routeru 2 (pro simulaci i zobrazení) */
+  const dhcp = useMemo(() => resolveDhcp(cfg, devices, cidr), [cfg, devices, cidr]);
+  const effCfg = dhcp.cfg;
 
   const say = useCallback((text: string) => {
     setToast(text);
@@ -198,7 +202,21 @@ export default function App() {
     stopAnim();
     setPacket(null);
     setErrorFields(new Set());
-    set((d) => ({ ...d, cfg: { ...d.cfg, ...(values as Config) } }));
+    set((d) => {
+      const next = { ...(values as Config) };
+      // doplnění ruční adresy (Dle R2, Průvodce) přepne klienta z DHCP na statickou adresu
+      for (const k of Object.keys(values)) {
+        const m = k.match(/^(pc|dev-\d+)-ip$/);
+        if (m && d.cfg[`${m[1]}-dhcp`] === '1') next[`${m[1]}-dhcp`] = '';
+      }
+      return { ...d, cfg: { ...d.cfg, ...next } };
+    });
+  };
+
+  /** Klient bez přidělené adresy (DHCP): simulace končí chybou na zařízení. */
+  const dhcpFailure = (id: NodeId): SimResult | null => {
+    const pr = dhcp.problems[id];
+    return pr ? { ok: false, stopNode: id, logs: [{ type: 'error', title: pr.title, text: pr.text }], errorFields: pr.fields } : null;
   };
 
   /** Společné zpracování chyby: označí pole a otevře zařízení, kde je potřeba zasáhnout. */
@@ -253,7 +271,7 @@ export default function App() {
   const runPing = (clientId: NodeId = 'pc') => {
     const dev = devices.find((d) => d.id === clientId);
     const client = dev ? { id: dev.id, name: dev.name } : PC_CLIENT;
-    const res = simulate(cfg, isp, scenario, cidr, fmt, client, othersFor(clientId));
+    const res = dhcpFailure(clientId) ?? simulate(effCfg, isp, scenario, cidr, fmt, client, othersFor(clientId));
     const path = pingPath(uplinks, clientId);
     animate(path, linksOfPath(uplinks, path) as LinkId[], res,
       { run: 'ICMP Ping...', ok: '✓ Pong (OK)', err: '✕ Paket zahozen', badgeOk: 'Připojení k internetu je funkční!' });
@@ -263,7 +281,7 @@ export default function App() {
   const runInbound = (deviceId: NodeId) => {
     const dev = devices.find((d) => d.id === deviceId);
     if (!dev) return;
-    const res = simulateInbound(cfg, isp, cidr, fmt, dev, rules, othersFor(deviceId));
+    const res = dhcpFailure(deviceId) ?? simulateInbound(effCfg, isp, cidr, fmt, dev, rules, othersFor(deviceId));
     const proto = KIND_INFO[dev.kind].service ?? 'TCP';
     const path = inboundPath(uplinks, deviceId);
     animate(path, linksOfPath(uplinks, path) as LinkId[], res,
@@ -274,9 +292,9 @@ export default function App() {
   const runTrace = () => {
     unlockAudio();
     resetVisual();
-    const res = simulate(cfg, isp, scenario, cidr, fmt, PC_CLIENT, othersFor('pc'));
+    const res = dhcpFailure('pc') ?? simulate(effCfg, isp, scenario, cidr, fmt, PC_CLIENT, othersFor('pc'));
     const reached = res.logs.filter((l) => l.type === 'success').length; // 0–4 odpovídajících hopů
-    const t = (id: string) => (cfg[id] ?? '').trim() || '?';
+    const t = (id: string) => (effCfg[id] ?? '').trim() || '?';
     const hops = traceHops({ r2Lan: t('r2-lan-ip'), r1Lan: t('r1-lan-ip'), ispGw: isp.gwIp, target: isp.dnsIp });
     const path = pingPath(uplinks, 'pc');
     const links = linksOfPath(uplinks, path) as LinkId[];
@@ -661,6 +679,8 @@ export default function App() {
               devices={devices}
               uplinks={uplinks}
               rules={rules}
+              dhcp={dhcp}
+              onFill={fillFields}
               cfg={cfg}
               onField={onField}
               errorFields={errorFields}

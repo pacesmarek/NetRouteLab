@@ -7,7 +7,8 @@ export const FIXED_FIELD_IDS = [
   'r1-lan-ip', 'r1-lan-mask',
   'r2-wan-ip', 'r2-wan-mask', 'r2-wan-gw', 'r2-wan-dns',
   'r2-lan-ip', 'r2-lan-mask',
-  'pc-ip', 'pc-mask', 'pc-gw', 'pc-dns',
+  'r2-dhcp-on', 'r2-dhcp-start', 'r2-dhcp-end', 'r2-dhcp-dns',
+  'pc-ip', 'pc-mask', 'pc-gw', 'pc-dns', 'pc-dhcp',
 ] as const;
 
 /** Id pole: pevná ('r1-wan-ip'), zařízení ('dev-1-ip', 'dev-1-pub') nebo pravidlo PAT ('r1-pat-a-ext'). */
@@ -21,7 +22,7 @@ export const emptyConfig = (): Config =>
 export function nodeOfField(id: FieldId): NodeId {
   if (id.startsWith('r1-')) return 'r1';
   if (id.startsWith('r2-')) return 'r2';
-  return id.replace(/-(ip|mask|gw|dns|pub)$/, '');
+  return id.replace(/-(ip|mask|gw|dns|pub|dhcp)$/, '');
 }
 
 export type LinkId = string; // `link-${dítě}-${rodič}`: 'link-r1-isp', 'link-r2-r1', 'link-pc-r2', 'link-dev-1-dev-3', …
@@ -87,7 +88,7 @@ export interface Scenario {
   /** doplňující požadavek zadání (text) */
   note?: string;
   /** zařízení, která se přidají do plochy při spuštění úlohy (behind = index zařízení v tomto poli, za kterým je zapojené) */
-  devices?: { kind: DeviceKind; name?: string; behind?: number }[];
+  devices?: { kind: DeviceKind; name?: string; behind?: number; dhcp?: boolean }[];
 }
 
 export interface LogItem {
@@ -140,6 +141,15 @@ export const SCENARIOS: Scenario[] = [
     lan1RequiredNet: '172.20.0.0', lan1RequiredPrefix: 24,
     lan2RequiredNet: '192.168.77.0', lan2RequiredPrefix: 24,
     devices: [{ kind: 'switch' }, { kind: 'webserver', behind: 0 }, { kind: 'camera', behind: 0 }],
+  },
+  {
+    title: 'Scénář #7: DHCP v síti LAN 2',
+    summary: 'PC a kamera dostávají adresu automaticky z DHCP serveru na Routeru 2; kamera je navíc dostupná z internetu.',
+    note: 'Na Routeru 2 zapněte DHCP server (rozsah v síti LAN 2, DNS podle ISP). Přidané PC a kamera mají zapnuté automatické získání adresy – přidělenou adresu kamery použijte v pravidle PAT.',
+    ispGw: '81.200.30.1', ispMask: '255.255.255.0', ispDns: '9.9.9.9',
+    lan1RequiredNet: '10.1.0.0', lan1RequiredPrefix: 24,
+    lan2RequiredNet: '192.168.30.0', lan2RequiredPrefix: 24,
+    devices: [{ kind: 'pc', dhcp: true }, { kind: 'camera', dhcp: true }],
   },
 ];
 

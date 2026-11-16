@@ -3,6 +3,18 @@
 Přehled verzí a změn. Zobrazuje se i v aplikaci (odkaz „Co je nového“ v patičce).
 Formát: `## verze – datum`, sekce `### Přidáno / Změněno / Opraveno`, položky jako odrážky.
 
+## 1.3.0 – 2026-11-16
+
+### Přidáno
+- DHCP server na Routeru 2: zapnutí v nastavení routeru, rozsah adres a DNS pro klienty (po zapnutí se předvyplní rozumný rozsah)
+- PC, kamery a servery lze přepnout z ruční adresy na „Automaticky (DHCP)“; přidělená adresa, maska, brána a DNS se zobrazí přímo v nastavení zařízení i na jeho kartě
+- Simulace počítá s DHCP: vypnutý server, neplatný nebo obrácený rozsah, rozsah mimo síť LAN 2 a vyčerpaný rozsah končí srozumitelnou chybou a otevře Router 2; ručně nastavené adresy DHCP přeskakuje
+- Úloha #7: DHCP v síti LAN 2 (PC a kamera s DHCP, kamera dostupná z internetu)
+
+### Změněno
+- Doplnění ruční adresy („Dle R2“, Průvodce) přepne zařízení z DHCP zpět na statickou adresu
+- Panel Routeru 2 má sekce 1 WAN, 2 LAN, 3 DHCP, 4 PAT
+
 ## 1.2.0 – 2026-11-16
 
 ### Přidáno

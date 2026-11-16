@@ -2,6 +2,7 @@ import { Mail, Maximize, Minus, Plus } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useElementWidth, useLocalStorage, useMeasuredHeight } from '../hooks';
+import type { DhcpResult } from '../lib/dhcp';
 import type { Config, Device, FieldId, IspConfig, LinkId, NodeId, Pos, RouterId, Rules, Uplinks } from '../lib/model';
 import { FIXED_NODES, KIND_INFO, isL2, linkId, nodeOfField } from '../lib/model';
 import { analyzeInterface } from '../lib/net';
@@ -22,6 +23,8 @@ interface Props {
   devices: Device[];
   uplinks: Uplinks;
   rules: Rules;
+  dhcp: DhcpResult;
+  onFill: (values: Partial<Config>) => void;
   cfg: Config;
   onField: (id: FieldId, value: string) => void;
   errorFields: Set<FieldId>;
@@ -270,6 +273,13 @@ export default function Topology(p: Props) {
       const n = links.filter((l) => l.from === id).length;
       return <><span className="block text-ink-4">{d.kind === 'ap' ? 'Wi-Fi · bez IP' : 'Vrstva 2 · bez IP'}</span><span className="block"><span className="text-ink-4">PORTY</span> {n} připojeno</span></>;
     }
+    if ((c[`${id}-dhcp`] ?? '') === '1') {
+      const l = p.dhcp.leases[id];
+      const dh = <span className="block"><span className="text-ink-4">DHCP</span> {l ? l.ip : <span className="text-rose-600 dark:text-rose-400">bez adresy</span>}{d && d.kind !== 'pc' ? `:${KIND_INFO[d.kind].port}` : ''}</span>;
+      if (!d || d.kind === 'pc') return dh;
+      const pub0 = (c[`${id}-pub`] ?? '').trim();
+      return <>{dh}<span className="block"><span className="text-ink-4">PUB</span> {pub0 ? `:${pub0}` : '—'}</span></>;
+    }
     if (!d || d.kind === 'pc') return fmtIface('IP', c[`${id}-ip`], c[`${id}-mask`]);
     const pub = (c[`${id}-pub`] ?? '').trim();
     return <>{fmtIface('IP', c[`${id}-ip`], c[`${id}-mask`], `:${KIND_INFO[d.kind].port}`)}<span className="block"><span className="text-ink-4">PUB</span> {pub ? `:${pub}` : '—'}</span></>;
@@ -307,6 +317,8 @@ export default function Topology(p: Props) {
       cidr={p.cidr}
       showCalc={p.showCalc}
       rules={p.rules}
+      dhcp={p.dhcp}
+      onFill={p.onFill}
       onAddRule={p.onAddRule}
       onRemoveRule={p.onRemoveRule}
       onClose={p.onCloseNode}

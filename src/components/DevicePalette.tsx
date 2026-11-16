@@ -67,7 +67,7 @@ export default function DevicePalette({ onAdd, onDrop, layout }: PaletteProps) {
   return (
     <section className="bg-surface border border-line rounded-2xl p-4 shadow-sm" aria-label="Přidat zařízení do plochy">
       <h2 className="text-lg font-bold text-ink flex items-center gap-2">
-        <Plus className="w-5 h-5 text-blue-600" /> Přidat do plochy
+        <Plus className="w-5 h-5 text-blue-600 dark:text-blue-400" /> Přidat do plochy
       </h2>
       <p className="text-sm text-ink-3 mt-0.5 mb-3">
         Klikněte, nebo zařízení <strong>přetáhněte</strong> na plochu. Puštění na switch či AP ho k němu rovnou připojí.

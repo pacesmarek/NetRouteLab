@@ -1,9 +1,11 @@
 import { ArrowDown, Cloud, Globe, Monitor, Network, Plus, Router, Server, Trash2, Video, Wand2, Wifi, X } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { type DhcpResult } from '../lib/dhcp';
+import Toggle from './Toggle';
 import { descendants } from '../lib/graph';
 import type { Config, Device, FieldId, IspConfig, NodeId, RouterId, Rules, Uplinks } from '../lib/model';
 import { FIXED_NODES, KIND_INFO, isL2, ruleField } from '../lib/model';
-import { analyzeInterface, parseSubnetMask } from '../lib/net';
+import { analyzeInterface, ipToLong, longToIp, parseSubnetMask } from '../lib/net';
 
 export const PANEL_WIDTH_REM = { isp: 22, router: 30, device: 30, l2: 23 } as const;
 export const panelWidthRem = (node: NodeId, isDevice: boolean, l2 = false) =>
@@ -24,6 +26,8 @@ export interface PanelProps extends Common {
   uplinks: Uplinks;
   isp: IspConfig;
   rules: Rules;
+  dhcp: DhcpResult;
+  onFill: (values: Partial<Config>) => void;
   onAddRule: (router: RouterId) => void;
   onRemoveRule: (router: RouterId, id: string) => void;
   onClose: () => void;
@@ -135,11 +139,12 @@ function Readonly({ label, value, tone = 'sky' }: { label: string; value: string
 // ----------------------------------------------------------------------------
 // Sekce (shora dolů = chronologie zapojení)
 
-type Tone = 'wan' | 'lan' | 'pat' | 'svc';
+type Tone = 'wan' | 'lan' | 'pat' | 'svc' | 'dhcp';
 const TONES: Record<Tone, { bg: string; line: string; text: string; dot: string; side: string; ring: string }> = {
   wan: { bg: 'bg-blue-50/50 dark:bg-blue-950/30', line: 'border-blue-200 dark:border-blue-800', text: 'text-blue-800 dark:text-blue-200', dot: 'bg-blue-600', side: 'text-blue-600 dark:text-blue-400', ring: 'focus:ring-blue-500' },
   lan: { bg: 'bg-emerald-50/50 dark:bg-emerald-950/30', line: 'border-emerald-200 dark:border-emerald-800', text: 'text-emerald-800 dark:text-emerald-200', dot: 'bg-emerald-500', side: 'text-emerald-700 dark:text-emerald-300', ring: 'focus:ring-emerald-500' },
   pat: { bg: 'bg-violet-50/50 dark:bg-violet-950/30', line: 'border-violet-200 dark:border-violet-800', text: 'text-violet-800 dark:text-violet-200', dot: 'bg-violet-500', side: 'text-violet-700 dark:text-violet-300', ring: 'focus:ring-violet-500' },
+  dhcp: { bg: 'bg-teal-50/50 dark:bg-teal-950/30', line: 'border-teal-200 dark:border-teal-800', text: 'text-teal-800 dark:text-teal-200', dot: 'bg-teal-500', side: 'text-teal-700 dark:text-teal-300', ring: 'focus:ring-teal-500' },
   svc: { bg: 'bg-violet-50/50 dark:bg-violet-950/30', line: 'border-violet-200 dark:border-violet-800', text: 'text-violet-800 dark:text-violet-200', dot: 'bg-violet-500', side: 'text-violet-700 dark:text-violet-300', ring: 'focus:ring-violet-500' },
 };
 
@@ -214,19 +219,70 @@ function RouterBody(p: PanelProps & { router: RouterId }) {
         <div className={grid2}>{lan(id('lan-ip'), 'IPv4 adresa')}{lan(id('lan-mask'), 'Maska podsítě', true)}</div>
         {p.showCalc && <Calc ip={p.cfg[id('lan-ip')] ?? ''} mask={p.cfg[id('lan-mask')] ?? ''} cidr={p.cidr} />}
       </Section>
+      {r === 'r2' && (
+        <>
+          <Flow label="služby pro klienty v LAN 2" />
+          <DhcpSection {...p} />
+        </>
+      )}
       <Flow label="z internetu dovnitř" />
-      <PatSection {...p} router={r} />
+      <PatSection {...p} router={r} step={r === 'r2' ? 4 : 3} />
     </div>
   );
 }
 
-function PatSection(p: PanelProps & { router: RouterId }) {
+/** DHCP server na Routeru 2: klientům v LAN 2 přiděluje adresu, masku, bránu a DNS. */
+function DhcpSection(p: PanelProps) {
+  const on = (p.cfg['r2-dhcp-on'] ?? '') === '1';
+  const lan = analyzeInterface(p.cfg['r2-lan-ip'] ?? '', p.cfg['r2-lan-mask'] ?? '', p.cidr);
+  const f = fieldMaker(p, 'dhcp');
+  const toggle = (checked: boolean) => {
+    if (!checked) { p.onFill({ 'r2-dhcp-on': '' }); return; }
+    const v: Partial<Config> = { 'r2-dhcp-on': '1' };
+    // předvyplnění rozumného rozsahu a DNS (jen když je prázdné)
+    if (lan.valid && !(p.cfg['r2-dhcp-start'] ?? '').trim() && !(p.cfg['r2-dhcp-end'] ?? '').trim()) {
+      const hosts = lan.broadcastLong - lan.networkLong - 1;
+      const first = lan.networkLong + (hosts >= 160 ? 100 : 10);
+      const last = Math.min(first + (hosts >= 160 ? 50 : 20), lan.broadcastLong - 1);
+      v['r2-dhcp-start'] = longToIp(first);
+      v['r2-dhcp-end'] = longToIp(last);
+    }
+    if (!(p.cfg['r2-dhcp-dns'] ?? '').trim()) v['r2-dhcp-dns'] = p.isp.dnsIp;
+    p.onFill(v);
+  };
+  const s = ipToLong(p.cfg['r2-dhcp-start'] ?? ''), e = ipToLong(p.cfg['r2-dhcp-end'] ?? '');
+  const count = s !== null && e !== null && e >= s ? e - s + 1 : null;
+  const err = p.errorFields.has('r2-dhcp-on');
+  return (
+    <Section tone="dhcp" step={3} title="DHCP server (LAN 2)" side="↓ pro klienty">
+      <div id="box-r2-dhcp-on" className={`flex items-center gap-3 rounded-lg p-1.5 ${err ? 'ring-2 ring-rose-400 bg-rose-50 dark:bg-rose-950/50 dark:bg-rose-950/40' : ''}`}>
+        <Toggle checked={on} onChange={toggle} label="DHCP server" onColor="bg-teal-600" />
+        <div className="text-sm text-ink leading-snug">
+          <strong className="block text-ink">DHCP server {on ? 'zapnutý' : 'vypnutý'}</strong>
+          Zařízení v LAN 2 s volbou „DHCP“ dostanou adresu z rozsahu automaticky.
+        </div>
+      </div>
+      {on && (
+        <>
+          <div className={grid2}>{f('r2-dhcp-start', 'Začátek rozsahu')}{f('r2-dhcp-end', 'Konec rozsahu')}</div>
+          {f('r2-dhcp-dns', 'DNS server pro klienty')}
+          <p className="text-xs text-ink-2 leading-snug bg-surface/80 border border-line rounded-lg px-3 py-2">
+            {count !== null ? <>Rozsah má <strong>{count}</strong> adres. </> : null}
+            Maska a výchozí brána se klientům předají automaticky z LAN rozhraní (adresa routeru <span className="font-mono">{lan.valid ? lan.ipStr : '—'}</span>).
+          </p>
+        </>
+      )}
+    </Section>
+  );
+}
+
+function PatSection(p: PanelProps & { router: RouterId; step: number }) {
   const r = p.router;
   const ids = p.rules[r];
   return (
     <Section
       tone="pat"
-      step={3}
+      step={p.step}
       title="PAT – přesměrování portů"
       action={
         <button type="button" onClick={() => p.onAddRule(r)} className="inline-flex items-center gap-1 text-xs font-bold text-violet-900 dark:text-violet-100 bg-surface border border-violet-300 dark:border-violet-700 hover:bg-violet-100 dark:hover:bg-violet-900/50 rounded-md px-2 py-1 transition">
@@ -273,6 +329,11 @@ function PatSection(p: PanelProps & { router: RouterId }) {
 function ClientBody(p: PanelProps & { prefix: string; title: string }) {
   const lan = fieldMaker(p, 'lan');
   const id = (s: string) => `${p.prefix}-${s}`;
+  const dhcpOn = (p.cfg[id('dhcp')] ?? '') === '1';
+  const lease = p.dhcp.leases[p.prefix];
+  const problem = p.dhcp.problems[p.prefix];
+  const li = lease ? analyzeInterface(lease.ip, lease.mask, true) : null;
+  const leaseMask = lease ? (p.cidr && li?.valid ? `/${li.prefix}` : lease.mask) : '';
   return (
     <Section
       tone="lan"
@@ -285,9 +346,46 @@ function ClientBody(p: PanelProps & { prefix: string; title: string }) {
       }
     >
       <UplinkSelect nodeId={p.prefix} devices={p.devices} uplinks={p.uplinks} onUplink={p.onUplink} />
-      <div className={grid2}>{lan(id('ip'), 'IPv4 adresa')}{lan(id('mask'), 'Maska podsítě', true)}</div>
-      <div className={grid2}>{lan(id('gw'), 'Výchozí brána')}{lan(id('dns'), 'DNS server')}</div>
-      {p.showCalc && <Calc ip={p.cfg[id('ip')] ?? ''} mask={p.cfg[id('mask')] ?? ''} cidr={p.cidr} />}
+      <div>
+        <div className="block text-sm font-semibold text-ink mb-1">Získání adresy</div>
+        <div className="grid grid-cols-2 gap-1.5" role="group" aria-label="Způsob získání adresy">
+          {([['', 'Ručně (statická)'], ['1', 'Automaticky (DHCP)']] as const).map(([v, label]) => (
+            <button key={v} type="button" onClick={() => p.onField(id('dhcp'), v)}
+              className={`px-2 py-2 rounded-lg border text-sm font-semibold transition ${dhcpOn === !!v ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-surface border-line-strong text-ink hover:bg-surface-2'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {dhcpOn ? (
+        <div id={`box-${id('ip')}`} className="space-y-2">
+          {lease ? (
+            <>
+              <div className="rounded-lg border border-teal-300 dark:border-teal-700 bg-teal-50/70 dark:bg-teal-950/30 dark:bg-teal-950/40 px-3 py-2 text-sm text-ink">
+                <div className="font-bold text-ink mb-1">✓ Adresu přidělil DHCP server na Routeru 2</div>
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 font-mono">
+                  <dt className="text-ink-3 font-sans">IP</dt><dd className="font-bold text-ink">{lease.ip}</dd>
+                  <dt className="text-ink-3 font-sans">Maska</dt><dd>{leaseMask}</dd>
+                  <dt className="text-ink-3 font-sans">Brána</dt><dd>{lease.gw}</dd>
+                  <dt className="text-ink-3 font-sans">DNS</dt><dd>{lease.dns}</dd>
+                </dl>
+              </div>
+              {p.showCalc && <Calc ip={lease.ip} mask={lease.mask} cidr={p.cidr} />}
+            </>
+          ) : (
+            <div className="rounded-lg border border-rose-300 dark:border-rose-700 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/50 dark:bg-rose-950/40 px-3 py-2 text-sm text-rose-900 dark:text-rose-100 dark:text-rose-200">
+              <div className="font-bold mb-0.5">Zařízení zatím nemá adresu</div>
+              {problem ? problem.text : 'DHCP server na Routeru 2 není nastaven.'}
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
+          <div className={grid2}>{lan(id('ip'), 'IPv4 adresa')}{lan(id('mask'), 'Maska podsítě', true)}</div>
+          <div className={grid2}>{lan(id('gw'), 'Výchozí brána')}{lan(id('dns'), 'DNS server')}</div>
+          {p.showCalc && <Calc ip={p.cfg[id('ip')] ?? ''} mask={p.cfg[id('mask')] ?? ''} cidr={p.cidr} />}
+        </>
+      )}
     </Section>
   );
 }

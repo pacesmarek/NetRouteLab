@@ -63,3 +63,74 @@ describe('dokument: odkaz a ověření', () => {
     expect(emptyDoc().devices).toEqual([]);
   });
 });
+
+import { resolveDhcp } from './dhcp';
+import { DEFAULT_ISP, emptyConfig } from './model';
+import { solve } from './plan';
+import { simulate, simulateInbound } from './simulate';
+import { ipMask } from './format';
+import type { Config, Device } from './model';
+
+describe('DHCP', () => {
+  const devs: Device[] = [
+    { id: 'dev-1', kind: 'camera', name: 'Kamera 1' },
+    { id: 'dev-2', kind: 'pc', name: 'PC 2' },
+  ];
+  const base = (): Config => {
+    const sol = solve(DEFAULT_ISP, null, devs, false);
+    return { ...emptyConfig(), ...sol.cfg };
+  };
+  const withDhcp = (c: Config): Config => ({
+    ...c, 'r2-dhcp-on': '1', 'r2-dhcp-start': '10.0.0.100', 'r2-dhcp-end': '10.0.0.150', 'r2-dhcp-dns': '8.8.8.8',
+    'pc-dhcp': '1', 'dev-1-dhcp': '1',
+  });
+  const fmt = (a: string, p: number) => ipMask(a, p, false);
+
+  it('přidělí adresy z rozsahu postupně a předá masku, bránu i DNS', () => {
+    const r = resolveDhcp(withDhcp(base()), devs, false);
+    expect(r.leases.pc).toEqual({ ip: '10.0.0.100', mask: '255.255.255.0', gw: '10.0.0.1', dns: '8.8.8.8' });
+    expect(r.leases['dev-1'].ip).toBe('10.0.0.101');
+    expect(r.leases['dev-2']).toBeUndefined(); // statické zařízení
+    expect(Object.keys(r.problems)).toEqual([]);
+  });
+
+  it('přeskočí adresy ručně nastavených zařízení', () => {
+    const c = withDhcp(base());
+    c['dev-2-ip'] = '10.0.0.100';
+    expect(resolveDhcp(c, devs, false).leases.pc.ip).toBe('10.0.0.101');
+  });
+
+  it('ping i přístup zvenku fungují s adresami z DHCP', () => {
+    const c = withDhcp(base());
+    const r = resolveDhcp(c, devs, false);
+    // pravidlo PAT na R2 musí mířit na přidělenou adresu kamery
+    const eff = { ...r.cfg, 'r2-pat-dev-1-ip': r.leases['dev-1'].ip };
+    expect(simulate(eff, DEFAULT_ISP, null, false, fmt).ok).toBe(true);
+    const sol = solve(DEFAULT_ISP, null, devs, false);
+    expect(simulateInbound(eff, DEFAULT_ISP, false, fmt, devs[0], sol.rules, []).ok).toBe(true);
+  });
+
+  it('vypnutý DHCP server = klient bez adresy, chyba míří na přepínač DHCP', () => {
+    const c = withDhcp(base());
+    c['r2-dhcp-on'] = '';
+    const r = resolveDhcp(c, devs, false);
+    expect(r.problems.pc.fields).toEqual(['r2-dhcp-on']);
+    expect(simulate(r.cfg, DEFAULT_ISP, null, false, fmt).ok).toBe(false);
+  });
+
+  it('rozsah mimo síť, obrácený a vyčerpaný', () => {
+    const out = withDhcp(base()); out['r2-dhcp-start'] = '192.168.5.10'; out['r2-dhcp-end'] = '192.168.5.20';
+    expect(resolveDhcp(out, devs, false).problems.pc.title).toContain('mimo síť');
+    const rev = withDhcp(base()); rev['r2-dhcp-start'] = '10.0.0.150'; rev['r2-dhcp-end'] = '10.0.0.100';
+    expect(resolveDhcp(rev, devs, false).problems.pc.title).toContain('obrácený');
+    const tiny = withDhcp(base()); tiny['r2-dhcp-end'] = '10.0.0.100';
+    const t = resolveDhcp(tiny, devs, false);
+    expect(t.leases.pc.ip).toBe('10.0.0.100');
+    expect(t.problems['dev-1'].title).toContain('vyčerpán');
+  });
+
+  it('bez DHCP klientů se konfigurace nemění', () => {
+    const c = base();
+    expect(resolveDhcp(c, devs, false).cfg).toBe(c);
+  });
+});
