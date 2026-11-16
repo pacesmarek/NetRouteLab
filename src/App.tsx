@@ -334,6 +334,13 @@ export default function App() {
     );
   }
 
+  const runButton = (
+    <button id="btn-run-test" onClick={() => runPing('pc')}
+      className="shrink-0 w-full lg:w-auto inline-flex items-center justify-center gap-2 px-6 py-3.5 text-base font-bold rounded-xl bg-blue-600 text-white hover:bg-blue-700 active:scale-[0.99] transition shadow-md shadow-blue-600/20">
+      <Play className="w-5 h-5 fill-current" /> Otestovat připojení (Ping)
+    </button>
+  );
+
   const diag = <Diagnostics logs={logs} badge={badge.text} tone={badge.tone} />;
 
   return (
@@ -366,10 +373,7 @@ export default function App() {
             <p className="text-base text-ink leading-relaxed">{description}</p>
             {chips}
           </div>
-          <button id="btn-run-test" onClick={() => runPing('pc')}
-            className="shrink-0 w-full lg:w-auto inline-flex items-center justify-center gap-2 px-6 py-3.5 text-base font-bold rounded-xl bg-blue-600 text-white hover:bg-blue-700 active:scale-[0.99] transition shadow-md shadow-blue-600/20">
-            <Play className="w-5 h-5 fill-current" /> Otestovat připojení (Ping)
-          </button>
+          {!wide && runButton}
         </section>
 
         {!wide && <DevicePalette onAdd={addDevice} layout="row" />}
@@ -416,6 +420,7 @@ export default function App() {
           </section>
           {wide ? (
             <aside className="space-y-5 sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto pr-1 -mr-1">
+              <div className="[&>button]:w-full">{runButton}</div>
               {diag}
               <DevicePalette onAdd={addDevice} layout="column" />
             </aside>
