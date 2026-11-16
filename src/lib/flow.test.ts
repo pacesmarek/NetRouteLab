@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { fmtMask, ipMask } from './format';
-import { DEFAULT_ISP, SCENARIOS, emptyConfig, sampleConfig, type Config, type IspConfig, type Scenario } from './model';
+import { DEFAULT_ISP, SCENARIOS, emptyConfig, isServer, ruleField, sampleConfig, type Config, type Device, type IspConfig, type Rules, type Scenario } from './model';
 import { analyzeInterface, parseSubnetMask } from './net';
-import { makePlan } from './plan';
-import { simulate } from './simulate';
+import { makePlan, solve } from './plan';
+import { simulate, simulateInbound } from './simulate';
 
 const run = (cfg: Config, isp: IspConfig, sc: Scenario | null, cidr = false) =>
   simulate(cfg, isp, sc, cidr, (a, p) => ipMask(a, p, cidr));
@@ -101,4 +101,80 @@ describe('řešení z průvodce', () => {
       });
     }
   }
+});
+
+describe('přidaná zařízení a PAT', () => {
+  const devs: Device[] = [
+    { id: 'dev-1', kind: 'camera', name: 'Kamera 1' },
+    { id: 'dev-2', kind: 'webserver', name: 'Web server 1' },
+    { id: 'dev-3', kind: 'pc', name: 'PC 2' },
+    { id: 'dev-4', kind: 'camera', name: 'Kamera 2' },
+  ];
+  const others = (cfgDevs: Device[], self: string) => [
+    { name: 'Klientské PC', field: 'pc-ip' },
+    ...cfgDevs.filter((d) => d.id !== self).map((d) => ({ name: d.name, field: `${d.id}-ip` })),
+  ];
+
+  for (const sc of [null, ...SCENARIOS]) {
+    it(`řešení projde (ping z PC i přístup zvenku) – ${sc ? sc.title.slice(0, 10) : 'vzorové'}`, () => {
+      const isp: IspConfig = sc ? { gwIp: sc.ispGw, gwMask: sc.ispMask, dnsIp: sc.ispDns } : DEFAULT_ISP;
+      const sol = solve(isp, sc, devs, false);
+      expect(run(sol.cfg, isp, sc).ok).toBe(true);
+      const pc2 = simulate(sol.cfg, isp, sc, false, (a, p) => ipMask(a, p, false), { id: 'dev-3', name: 'PC 2' }, others(devs, 'dev-3'));
+      expect(pc2.ok).toBe(true);
+      for (const d of devs.filter(isServer)) {
+        const r = simulateInbound(sol.cfg, isp, false, (a, p) => ipMask(a, p, false), d, sol.rules, others(devs, d.id));
+        expect(r.logs.at(-1)?.title).toContain('dostupné z internetu');
+        expect(r.ok).toBe(true);
+      }
+    });
+  }
+
+  const inbound = (cfg: Config, rules: Rules, d: Device) =>
+    simulateInbound(cfg, DEFAULT_ISP, false, (a, p) => ipMask(a, p, false), d, rules, others(devs, d.id));
+
+  it('bez pravidla PAT na R1 spojení selže na R1', () => {
+    const sol = solve(DEFAULT_ISP, null, devs, false);
+    const r = inbound(sol.cfg, { r1: [], r2: sol.rules.r2 }, devs[0]);
+    expect(r.ok).toBe(false);
+    expect(r.stopNode).toBe('r1');
+  });
+
+  it('bez pravidla PAT na R2 spojení selže na R2', () => {
+    const sol = solve(DEFAULT_ISP, null, devs, false);
+    const r = inbound(sol.cfg, { r1: sol.rules.r1, r2: [] }, devs[0]);
+    expect(r.ok).toBe(false);
+    expect(r.stopNode).toBe('r2');
+  });
+
+  it('špatný cílový port (kamera nemá port 80) selže na R2', () => {
+    const sol = solve(DEFAULT_ISP, null, devs, false);
+    const cfg = { ...sol.cfg, [ruleField('r2', 'dev-1', 'port')]: '80' };
+    const r = inbound(cfg, sol.rules, devs[0]);
+    expect(r.ok).toBe(false);
+    expect(r.stopNode).toBe('r2');
+    expect(r.errorFields).toEqual([ruleField('r2', 'dev-1', 'port')]);
+  });
+
+  it('pravidlo na R1 míří přímo na kameru (ignoruje druhý router) selže na R1', () => {
+    const sol = solve(DEFAULT_ISP, null, devs, false);
+    const cfg = { ...sol.cfg, [ruleField('r1', 'dev-1', 'ip')]: sol.cfg['dev-1-ip'] };
+    const r = inbound(cfg, sol.rules, devs[0]);
+    expect(r.stopNode).toBe('r1');
+  });
+
+  it('dvě kamery na stejném vnějším portu = konflikt', () => {
+    const sol = solve(DEFAULT_ISP, null, devs, false);
+    const cfg = { ...sol.cfg, [ruleField('r1', 'dev-4', 'ext')]: sol.cfg[ruleField('r1', 'dev-1', 'ext')] };
+    const r = inbound(cfg, sol.rules, devs[0]);
+    expect(r.ok).toBe(false);
+    expect(r.logs.at(-1)?.title).toContain('stejný vnější port');
+  });
+
+  it('shodná IP kamery a PC je konflikt', () => {
+    const sol = solve(DEFAULT_ISP, null, devs, false);
+    const cfg = { ...sol.cfg, 'dev-1-ip': sol.cfg['pc-ip'] };
+    const r = inbound(cfg, sol.rules, devs[0]);
+    expect(r.ok).toBe(false);
+  });
 });

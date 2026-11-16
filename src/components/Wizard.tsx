@@ -1,15 +1,15 @@
 import { ChevronLeft, ChevronRight, Lightbulb, Play, Wand2, X } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { fmtMask, ipMask } from '../lib/format';
-import type { Config, FieldId, IspConfig, NodeId, Scenario } from '../lib/model';
+import { KIND_INFO, isServer, ruleField, type Config, type Device, type FieldId, type IspConfig, type NodeId, type Rules, type Scenario } from '../lib/model';
 import { ipToLong, parseSubnetMask } from '../lib/net';
-import { makePlan, type Plan } from '../lib/plan';
+import { makePlan, solve, type Plan, type Solution } from '../lib/plan';
 
 interface FillItem {
   id: FieldId;
   label: string;
   value: string;
-  kind: 'ip' | 'mask';
+  kind: 'ip' | 'mask' | 'text';
   prefix?: number;
 }
 interface Step {
@@ -22,14 +22,66 @@ interface Step {
   center?: boolean;
   last?: boolean;
   next?: string;
+  /** řádky pravidel PAT, které mají v zařízení existovat */
+  ensure?: Rules;
+  /** další tlačítka na posledním kroku (test přístupu z internetu) */
+  extra?: { label: string; id: NodeId }[];
 }
 
-const B = ({ children }: { children: ReactNode }) => <strong className="text-slate-900">{children}</strong>;
+const B = ({ children }: { children: ReactNode }) => <strong className="text-ink">{children}</strong>;
 const C = ({ children }: { children: ReactNode }) => (
-  <code className="font-mono font-semibold text-blue-800 bg-blue-50 px-1 rounded">{children}</code>
+  <code className="font-mono font-semibold text-blue-800 dark:text-blue-200 bg-blue-50 dark:bg-blue-950/50 px-1 rounded">{children}</code>
 );
 
-function buildSteps(p: Plan, cidr: boolean, scenario: Scenario | null): Step[] {
+
+const fillOf = (sol: Solution, id: FieldId, label: string, kind: FillItem['kind'] = 'ip', prefix?: number): FillItem => ({ id, label, value: sol.cfg[id] ?? '', kind, prefix });
+
+function deviceSteps(d: Device, p: Plan, sol: Solution): Step[] {
+  const info = KIND_INFO[d.kind];
+  const maskPrefix = p.l2.prefix;
+  const steps: Step[] = [
+    {
+      node: d.id, fields: [`${d.id}-ip`, `${d.id}-mask`],
+      title: `${d.name}: adresa a maska`,
+      body: <>Zařízení patří do sítě LAN 2 (za Routerem 2): <B>volná adresa</B> z této podsítě, <B>unikátní</B> (jiná než router, PC i ostatní zařízení), a <B>stejná maska</B>.<br /><span className="text-ink-3">Zkratka: tlačítko „Dle R2“ doplní zařízení automaticky.</span></>,
+      fill: [fillOf(sol, `${d.id}-ip`, 'IPv4 adresa'), fillOf(sol, `${d.id}-mask`, 'Maska podsítě', 'mask', maskPrefix)],
+    },
+    {
+      node: d.id, fields: [`${d.id}-gw`, `${d.id}-dns`],
+      title: `${d.name}: brána a DNS`,
+      body: <>Výchozí brána je <B>LAN adresa Routeru 2</B> (<C>{p.r2Lan}</C>) – přes ni zařízení odpovídá klientům mimo svou síť. Bez brány by požadavek došel, ale odpověď ne.</>,
+      fill: [fillOf(sol, `${d.id}-gw`, 'Výchozí brána'), fillOf(sol, `${d.id}-dns`, 'DNS server')],
+    },
+  ];
+  if (!isServer(d)) return steps;
+
+  const pub = sol.cfg[`${d.id}-pub`];
+  steps.push(
+    {
+      node: d.id, fields: [`${d.id}-pub`],
+      title: `${d.name}: veřejný port`,
+      body: <>Zvenku se na veřejnou IP routeru připojuje jen přes číslo portu. Každé zařízení (kamera, server) proto potřebuje na veřejné adrese <B>svůj vlastní port</B>. Zvolte např. <C>{pub}</C>. Přístupová adresa se zobrazí pod polem.</>,
+      fill: [fillOf(sol, `${d.id}-pub`, 'Veřejný port', 'text')],
+    },
+    {
+      node: 'r1', fields: [ruleField('r1', d.id, 'ext'), ruleField('r1', d.id, 'ip'), ruleField('r1', d.id, 'port')],
+      ensure: { r1: [d.id], r2: [] },
+      title: `PAT na Routeru 1 pro ${d.name}`,
+      body: <>Router 1 vidí internet. Spojení na veřejný port <C>{pub}</C> přesměruje na <B>WAN adresu Routeru 2</B> (<C>{p.r2Wan}</C>) – o samotném zařízení neví nic, je schované za druhým routerem.</>,
+      fill: [fillOf(sol, ruleField('r1', d.id, 'ext'), 'Vnější port', 'text'), fillOf(sol, ruleField('r1', d.id, 'ip'), 'Cílová IP'), fillOf(sol, ruleField('r1', d.id, 'port'), 'Cílový port', 'text')],
+    },
+    {
+      node: 'r2', fields: [ruleField('r2', d.id, 'ext'), ruleField('r2', d.id, 'ip'), ruleField('r2', d.id, 'port')],
+      ensure: { r1: [], r2: [d.id] },
+      title: `PAT na Routeru 2 pro ${d.name}`,
+      body: <>Router 2 přijme port <C>{pub}</C> od Routeru 1 a přesměruje ho na <B>IP zařízení</B> a <B>port jeho služby</B>: {info.service} = <C>{String(info.port)}</C>.</>,
+      fill: [fillOf(sol, ruleField('r2', d.id, 'ext'), 'Vnější port', 'text'), fillOf(sol, ruleField('r2', d.id, 'ip'), 'Cílová IP'), fillOf(sol, ruleField('r2', d.id, 'port'), 'Cílový port', 'text')],
+    },
+  );
+  return steps;
+}
+
+function buildSteps(p: Plan, sol: Solution, devices: Device[], cidr: boolean, scenario: Scenario | null): Step[] {
   const m = (prefix: number) => fmtMask(prefix, cidr);
   const net = (n: { net: string; prefix: number }) => ipMask(n.net, n.prefix, cidr);
   return [
@@ -138,7 +190,7 @@ function buildSteps(p: Plan, cidr: boolean, scenario: Scenario | null): Step[] {
       body: (
         <>
           PC patří do sítě LAN 2: <B>volná adresa</B> ze stejné podsítě jako LAN port Routeru 2 (ne adresa routeru, sítě ani broadcast) a <B>stejná maska</B>.
-          <br /><span className="text-slate-500">Zkratka: tlačítko „Dle R2“ doplní celé PC automaticky.</span>
+          <br /><span className="text-ink-3">Zkratka: tlačítko „Dle R2“ doplní celé PC automaticky.</span>
         </>
       ),
       fill: [
@@ -155,11 +207,13 @@ function buildSteps(p: Plan, cidr: boolean, scenario: Scenario | null): Step[] {
         { id: 'pc-dns', label: 'DNS server', value: p.dns, kind: 'ip' },
       ],
     },
+    ...devices.flatMap((d): Step[] => deviceSteps(d, p, sol)),
     {
       last: true,
       targetId: 'btn-run-test',
       title: 'Hotovo – otestujte spojení',
-      next: 'Otestovat připojení',
+      next: 'Otestovat připojení (Ping)',
+      extra: devices.filter(isServer).map((d) => ({ label: `Zvenku: ${d.name}`, id: d.id })),
       body: <>Všechna zařízení jsou nastavena. Paket teď vyšle ping z PC přes Router 2 a Router 1 až k serveru <C>{p.dns}</C>. Pokud něco nesedí, průvodce vás vrátí k chybnému zařízení.</>,
     },
   ];
@@ -170,16 +224,22 @@ interface Props {
   isp: IspConfig;
   scenario: Scenario | null;
   cidr: boolean;
+  devices: Device[];
   onFill: (values: Partial<Config>) => void;
+  onEnsureRules: (rules: Rules) => void;
   onOpenNode: (id: NodeId | null) => void;
   onClose: () => void;
   onFinish: () => void;
+  onRunInbound: (id: NodeId) => void;
 }
 
 interface Rect { left: number; top: number; right: number; bottom: number; width: number; height: number }
 
-export default function Wizard({ cfg, isp, scenario, cidr, onFill, onOpenNode, onClose, onFinish }: Props) {
-  const steps = useMemo(() => buildSteps(makePlan(isp, scenario), cidr, scenario), [isp, scenario, cidr]);
+export default function Wizard({ cfg, isp, scenario, cidr, devices, onFill, onEnsureRules, onOpenNode, onClose, onFinish, onRunInbound }: Props) {
+  const steps = useMemo(
+    () => buildSteps(makePlan(isp, scenario), solve(isp, scenario, devices, cidr), devices, cidr, scenario),
+    [isp, scenario, cidr, devices],
+  );
   const [i, setI] = useState(0);
   const [revealed, setRevealed] = useState(false);
   const step = steps[i];
@@ -238,6 +298,7 @@ export default function Wizard({ cfg, isp, scenario, cidr, onFill, onOpenNode, o
 
   // Změna kroku: otevřít zařízení, odscrollovat, sledovat animaci rozbalení
   useEffect(() => {
+    if (step.ensure) onEnsureRules(step.ensure);
     if (step.node) onOpenNode(step.node);
     const t1 = setTimeout(ensureVisible, 120);
     const t2 = setTimeout(() => {
@@ -277,18 +338,19 @@ export default function Wizard({ cfg, isp, scenario, cidr, onFill, onOpenNode, o
   };
 
   const fieldState = (f: FillItem): 'empty' | 'ok' | 'bad' => {
-    const v = cfg[f.id].trim();
+    const v = (cfg[f.id] ?? '').trim();
     if (!v) return 'empty';
     if (f.kind === 'mask') { const mk = parseSubnetMask(v, cidr); return mk && mk.prefix === f.prefix ? 'ok' : 'bad'; }
+    if (f.kind === 'text') return v === f.value.trim() ? 'ok' : 'bad';
     const a = ipToLong(v), b = ipToLong(f.value);
     return a !== null && a === b ? 'ok' : 'bad';
   };
   const states = step.fill?.map(fieldState) ?? [];
   const status = states.every((s) => s === 'ok')
-    ? { cls: 'bg-emerald-50 text-emerald-800 border-emerald-200 font-semibold', text: '✓ Hodnoty v zařízení jsou správně' }
+    ? { cls: 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-200 border-emerald-200 dark:border-emerald-800 font-semibold', text: '✓ Hodnoty v zařízení jsou správně' }
     : states.some((s) => s === 'bad')
-      ? { cls: 'bg-amber-50 text-amber-800 border-amber-200 font-semibold', text: 'Zatím to nesedí – zkontrolujte hodnoty' }
-      : { cls: 'bg-slate-50 text-slate-600 border-slate-200', text: 'Vyplňte zvýrazněná pole v zařízení' };
+      ? { cls: 'bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-200 border-amber-200 dark:border-amber-800 font-semibold', text: 'Zatím to nesedí – zkontrolujte hodnoty' }
+      : { cls: 'bg-surface-2 text-ink-2 border-line', text: 'Vyplňte zvýrazněná pole v zařízení' };
 
   const nextLabel = step.next ?? (i === steps.length - 1 ? 'Dokončit' : 'Další');
 
@@ -301,27 +363,27 @@ export default function Wizard({ cfg, isp, scenario, cidr, onFill, onOpenNode, o
       <div
         ref={cardRef}
         aria-live="polite"
-        className="fixed w-[26rem] max-w-[calc(100vw-24px)] max-h-[calc(100vh-24px)] overflow-y-auto pointer-events-auto bg-white rounded-2xl shadow-2xl border border-slate-200 transition-[left,top] duration-300"
+        className="fixed w-[26rem] max-w-[calc(100vw-24px)] max-h-[calc(100vh-24px)] overflow-y-auto pointer-events-auto bg-surface rounded-2xl shadow-2xl border border-line transition-[left,top] duration-300"
       >
         <div className="px-5 pt-4 pb-4 space-y-3.5">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 rounded-full">
+            <span className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 px-2.5 py-0.5 rounded-full">
               Krok {i + 1} / {steps.length}
             </span>
-            <button onClick={onClose} className="p-1 -mr-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition" aria-label="Zavřít průvodce" title="Zavřít (Esc)">
+            <button onClick={onClose} className="p-1 -mr-1 rounded-md text-ink-4 hover:text-ink hover:bg-surface-3 transition" aria-label="Zavřít průvodce" title="Zavřít (Esc)">
               <X className="w-5 h-5" />
             </button>
           </div>
-          <h4 className="font-bold text-xl text-slate-900 leading-snug">{step.title}</h4>
-          <p className="text-base text-slate-600 leading-relaxed">{step.body}</p>
+          <h4 className="font-bold text-xl text-ink leading-snug">{step.title}</h4>
+          <p className="text-base text-ink-2 leading-relaxed">{step.body}</p>
 
           {step.fill && (
             <>
-              <div className="rounded-lg border border-slate-200 bg-slate-50 divide-y divide-slate-200 text-sm">
+              <div className="rounded-lg border border-line bg-surface-2 divide-y divide-line text-sm">
                 {step.fill.map((f) => (
                   <div key={f.id} className="flex items-center justify-between px-3 py-2">
-                    <span className="text-slate-500">{f.label}</span>
-                    <span className={`font-mono font-bold ${revealed ? 'text-slate-900' : 'text-slate-400 select-none'}`}>{revealed ? f.value : '• • • • • •'}</span>
+                    <span className="text-ink-3">{f.label}</span>
+                    <span className={`font-mono font-bold ${revealed ? 'text-ink' : 'text-ink-4 select-none'}`}>{revealed ? f.value : '• • • • • •'}</span>
                   </div>
                 ))}
               </div>
@@ -336,7 +398,7 @@ export default function Wizard({ cfg, isp, scenario, cidr, onFill, onOpenNode, o
               ) : (
                 <button
                   onClick={() => setRevealed(true)}
-                  className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 text-sm font-bold rounded-lg border border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 transition"
+                  className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 text-sm font-bold rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/50 text-amber-900 dark:text-amber-100 hover:bg-amber-100 dark:hover:bg-amber-900/50 transition"
                 >
                   <Lightbulb className="w-4 h-4" /> Ukázat řešení
                 </button>
@@ -344,11 +406,17 @@ export default function Wizard({ cfg, isp, scenario, cidr, onFill, onOpenNode, o
             </>
           )}
 
+          {step.extra?.map((x) => (
+            <button key={x.id} onClick={() => onRunInbound(x.id)}
+              className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 text-sm font-bold rounded-lg bg-rose-600 text-white hover:bg-rose-700 transition">
+              {x.label}
+            </button>
+          ))}
           <div className="flex items-center justify-between gap-2 pt-1">
             <button
               onClick={() => go(-1)}
               disabled={i === 0}
-              className="inline-flex items-center gap-1 px-3.5 py-2.5 text-sm font-semibold rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 transition disabled:opacity-40 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-1 px-3.5 py-2.5 text-sm font-semibold rounded-lg border border-line-strong text-ink hover:bg-surface-2 transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <ChevronLeft className="w-4 h-4" /> Zpět
             </button>
@@ -360,7 +428,7 @@ export default function Wizard({ cfg, isp, scenario, cidr, onFill, onOpenNode, o
             </button>
           </div>
         </div>
-        <div className="h-1.5 bg-slate-100"><div className="h-1.5 bg-blue-500 transition-all" style={{ width: `${((i + 1) / steps.length) * 100}%` }} /></div>
+        <div className="h-1.5 bg-surface-3"><div className="h-1.5 bg-blue-500 transition-all" style={{ width: `${((i + 1) / steps.length) * 100}%` }} /></div>
       </div>
     </div>
   );

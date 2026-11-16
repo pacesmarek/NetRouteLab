@@ -54,3 +54,34 @@ export function PcArt() {
     </svg>
   );
 }
+
+export function CameraArt() {
+  return (
+    <svg viewBox="0 0 120 80" className={cls} aria-hidden="true">
+      <path d="M60 52v10M44 66h32" stroke="#475569" strokeWidth="5" strokeLinecap="round" />
+      <rect x="22" y="22" width="62" height="28" rx="8" fill="#334155" />
+      <rect x="26" y="26" width="54" height="9" rx="4" fill="#475569" />
+      <path d="M84 28l16-7v30l-16-7z" fill="#1e293b" />
+      <circle cx="40" cy="42" r="9" fill="#0f172a" stroke="#94a3b8" strokeWidth="2.5" />
+      <circle cx="40" cy="42" r="3.5" fill="#38bdf8" />
+      <circle cx="70" cy="40" r="2.6" fill="#f43f5e" />
+    </svg>
+  );
+}
+
+export function ServerArt() {
+  return (
+    <svg viewBox="0 0 120 80" className={cls} aria-hidden="true">
+      {[10, 30, 50].map((y) => (
+        <g key={y}>
+          <rect x="22" y={y} width="76" height="16" rx="4" fill="#334155" />
+          <rect x="22" y={y} width="76" height="5" rx="2.5" fill="#475569" opacity=".7" />
+          <circle cx="32" cy={y + 9} r="2.6" fill="#34d399" />
+          <circle cx="41" cy={y + 9} r="2.6" fill="#fbbf24" />
+          <rect x="62" y={y + 6} width="28" height="5" rx="2" fill="#94a3b8" />
+        </g>
+      ))}
+      <text x="60" y="77" textAnchor="middle" fontSize="9" fontWeight="700" fill="#64748b" fontFamily="monospace">:80</text>
+    </svg>
+  );
+}

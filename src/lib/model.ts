@@ -1,24 +1,59 @@
-export type NodeId = 'isp' | 'r1' | 'r2' | 'pc';
-export const NODE_ORDER: NodeId[] = ['isp', 'r1', 'r2', 'pc'];
+/** 'isp' | 'r1' | 'r2' | 'pc' + přidaná zařízení ('dev-1', 'dev-2', …) */
+export type NodeId = string;
+export const FIXED_NODES: NodeId[] = ['isp', 'r1', 'r2', 'pc'];
 
-export const FIELD_IDS = [
+export const FIXED_FIELD_IDS = [
   'r1-wan-ip', 'r1-wan-mask', 'r1-wan-gw', 'r1-wan-dns',
   'r1-lan-ip', 'r1-lan-mask',
   'r2-wan-ip', 'r2-wan-mask', 'r2-wan-gw', 'r2-wan-dns',
   'r2-lan-ip', 'r2-lan-mask',
   'pc-ip', 'pc-mask', 'pc-gw', 'pc-dns',
 ] as const;
-export type FieldId = (typeof FIELD_IDS)[number];
-export type Config = Record<FieldId, string>;
+
+/** Id pole: pevná ('r1-wan-ip'), zařízení ('dev-1-ip', 'dev-1-pub') nebo pravidlo PAT ('r1-pat-a-ext'). */
+export type FieldId = string;
+export type Config = Record<string, string>;
 
 export const emptyConfig = (): Config =>
-  Object.fromEntries(FIELD_IDS.map((f) => [f, ''])) as Config;
+  Object.fromEntries(FIXED_FIELD_IDS.map((f) => [f, ''])) as Config;
 
+/** Kterému zařízení pole patří. */
 export function nodeOfField(id: FieldId): NodeId {
-  return id.startsWith('r1') ? 'r1' : id.startsWith('r2') ? 'r2' : 'pc';
+  if (id.startsWith('r1-')) return 'r1';
+  if (id.startsWith('r2-')) return 'r2';
+  return id.replace(/-(ip|mask|gw|dns|pub)$/, '');
 }
 
-export type LinkId = 'link-r1-isp' | 'link-r2-r1' | 'link-pc-r2';
+export type LinkId = string; // 'link-r1-isp' | 'link-r2-r1' | `link-${klient}-r2`
+export const linkOf = (device: NodeId): LinkId => `link-${device}-r2`;
+
+// --- Přidaná zařízení v síti LAN 2 ---
+export type DeviceKind = 'pc' | 'camera' | 'webserver';
+
+export interface Device {
+  id: NodeId; // 'dev-1'…
+  kind: DeviceKind;
+  name: string;
+}
+
+export const KIND_INFO: Record<DeviceKind, { label: string; port?: number; service?: string }> = {
+  pc: { label: 'PC' },
+  camera: { label: 'Kamera', port: 554, service: 'RTSP' },
+  webserver: { label: 'Web server', port: 80, service: 'HTTP' },
+};
+
+/** Zařízení, ke kterému se přistupuje zvenku (PAT). */
+export const isServer = (d: Device) => d.kind !== 'pc';
+
+// --- Pravidla PAT (přesměrování portů) na routerech ---
+export type RouterId = 'r1' | 'r2';
+export interface Rules {
+  r1: string[];
+  r2: string[];
+}
+export const emptyRules = (): Rules => ({ r1: [], r2: [] });
+export const ruleField = (router: RouterId, rule: string, part: 'ext' | 'ip' | 'port'): FieldId =>
+  `${router}-pat-${rule}-${part}`;
 
 export interface IspConfig {
   gwIp: string;

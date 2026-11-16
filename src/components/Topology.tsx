@@ -1,12 +1,12 @@
 import { Mail } from 'lucide-react';
 import { useRef, type ReactNode } from 'react';
 import { useElementWidth, useMeasuredHeight } from '../hooks';
-import type { Config, FieldId, IspConfig, LinkId, NodeId } from '../lib/model';
-import { NODE_ORDER, nodeOfField } from '../lib/model';
+import type { Config, Device, FieldId, IspConfig, LinkId, NodeId, RouterId, Rules } from '../lib/model';
+import { FIXED_NODES, KIND_INFO, linkOf, nodeOfField } from '../lib/model';
 import { analyzeInterface } from '../lib/net';
-import { CloudArt, PcArt, RouterArt } from './Art';
+import { CameraArt, CloudArt, PcArt, RouterArt, ServerArt } from './Art';
 import DeviceCard, { CARD_H, CARD_W, type Status } from './DeviceCard';
-import SetupPanel, { PANEL_WIDTH_REM } from './SetupPanel';
+import SetupPanel, { panelWidthRem } from './SetupPanel';
 
 export interface Pos { x: number; y: number }
 export interface PacketState { node: NodeId; kind: 'run' | 'ok' | 'error'; label: string }
@@ -18,6 +18,8 @@ export interface LayoutApi {
 }
 
 interface Props {
+  devices: Device[];
+  rules: Rules;
   cfg: Config;
   onField: (id: FieldId, value: string) => void;
   errorFields: Set<FieldId>;
@@ -32,17 +34,19 @@ interface Props {
   packet: PacketState | null;
   onDismissPacket: () => void;
   rootPx: number;
-  onAutoFillPc: () => void;
+  onAutoFill: (id: NodeId) => void;
+  onAddRule: (router: RouterId) => void;
+  onRemoveRule: (router: RouterId, id: string) => void;
+  onRemoveDevice: (id: NodeId) => void;
+  onRename: (id: NodeId, name: string) => void;
+  onTestPing: (id: NodeId) => void;
+  onTestInbound: (id: NodeId) => void;
   layout: LayoutApi;
 }
 
-const LINKS: { id: LinkId; from: NodeId; to: NodeId; label: string }[] = [
-  { id: 'link-r1-isp', from: 'isp', to: 'r1', label: 'WAN' },
-  { id: 'link-r2-r1', from: 'r1', to: 'r2', label: 'ETH' },
-  { id: 'link-pc-r2', from: 'r2', to: 'pc', label: 'LAN' },
-];
-
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(v, hi));
+
+interface Def { name: string; sub: string; art: ReactNode; tint: string; idleIcon: 'globe' | 'minus'; idleClass: string }
 
 export default function Topology(p: Props) {
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -52,27 +56,45 @@ export default function Topology(p: Props) {
   const widthRem = canvasW / root;
   const maxX = Math.max(0, widthRem - CARD_W);
 
-  const eff = (id: NodeId): Pos => ({ x: clamp(p.layout.pos[id].x, 0, maxX), y: Math.max(0, p.layout.pos[id].y) });
-  const E = Object.fromEntries(NODE_ORDER.map((id) => [id, eff(id)])) as Record<NodeId, Pos>;
+  const nodeIds: NodeId[] = [...FIXED_NODES, ...p.devices.map((d) => d.id)];
+  const deviceOf = (id: NodeId) => p.devices.find((d) => d.id === id);
+  const links: { id: LinkId; from: NodeId; to: NodeId; label: string }[] = [
+    { id: 'link-r1-isp', from: 'isp', to: 'r1', label: 'WAN' },
+    { id: 'link-r2-r1', from: 'r1', to: 'r2', label: 'ETH' },
+    { id: linkOf('pc'), from: 'r2', to: 'pc', label: 'LAN' },
+    ...p.devices.map((d) => ({ id: linkOf(d.id), from: 'r2', to: d.id, label: 'LAN' })),
+  ];
+
+  const eff = (id: NodeId): Pos => {
+    const q = p.layout.pos[id] ?? { x: 0, y: 0 };
+    return { x: clamp(q.x, 0, maxX), y: Math.max(0, q.y) };
+  };
+  const E = Object.fromEntries(nodeIds.map((id) => [id, eff(id)])) as Record<NodeId, Pos>;
   const px = (rem: number) => rem * root;
 
   // --- umístění a rozměr rozbaleného nastavení ---
-  let panelLayout: { side: 'right' | 'left'; widthPx: number } | null = null;
+  // vedle karty (vpravo / vlevo), pokud je místo; jinak pod kartou; na úzkém plátně jako spodní panel
+  type PanelLayout = { mode: 'right' | 'left' | 'below'; widthPx: number; leftPx?: number };
+  let panelLayout: PanelLayout | null = null;
   let sheet = false;
-  if (p.openNode) {
+  if (p.openNode && E[p.openNode]) {
     const e = E[p.openNode];
-    const desired = px(PANEL_WIDTH_REM[p.openNode]);
+    const desired = px(panelWidthRem(p.openNode, !!deviceOf(p.openNode)));
     const availRight = canvasW - px(e.x + CARD_W + 1) - px(0.5);
     const availLeft = px(e.x - 1) - px(0.5);
-    const side = availRight >= desired || availRight >= availLeft ? 'right' : 'left';
-    const best = side === 'right' ? availRight : availLeft;
-    if (best < px(18)) sheet = true;
-    else panelLayout = { side, widthPx: Math.min(desired, best) };
+    if (availRight >= desired) panelLayout = { mode: 'right', widthPx: desired };
+    else if (availLeft >= desired) panelLayout = { mode: 'left', widthPx: desired };
+    else if (canvasW >= px(20)) {
+      const w = Math.min(desired, canvasW - px(1));
+      const leftAbs = clamp(px(e.x), px(0.5), canvasW - w - px(0.5));
+      panelLayout = { mode: 'below', widthPx: w, leftPx: leftAbs - px(e.x) };
+    } else sheet = true;
   }
 
   // --- výška plátna ---
-  const nodesBottom = Math.max(...NODE_ORDER.map((id) => px(E[id].y + CARD_H))) + px(3);
-  const panelBottom = p.openNode && !sheet ? px(E[p.openNode].y) + panelH + px(3) : 0;
+  const nodesBottom = Math.max(...nodeIds.map((id) => px(E[id].y + CARD_H))) + px(3);
+  const panelTop = p.openNode && E[p.openNode] ? px(E[p.openNode].y) + (panelLayout?.mode === 'below' ? px(CARD_H + 0.75) : 0) : 0;
+  const panelBottom = p.openNode && E[p.openNode] && !sheet ? panelTop + panelH + px(3) : 0;
   const canvasH = Math.max(nodesBottom, panelBottom);
 
   // --- kabely ---
@@ -80,8 +102,8 @@ export default function Topology(p: Props) {
     const A = { l: px(E[a].x), t: px(E[a].y), w: px(CARD_W), h: px(CARD_H) };
     const B = { l: px(E[b].x), t: px(E[b].y), w: px(CARD_W), h: px(CARD_H) };
     const gap = px(0.2);
-    let s: { x: number; y: number; dx: number; dy: number };
-    let t: { x: number; y: number; dx: number; dy: number };
+    type Anchor = { x: number; y: number; dx: number; dy: number };
+    let s: Anchor, t: Anchor;
     if (B.t >= A.t + A.h + gap) {
       s = { x: A.l + A.w / 2, y: A.t + A.h, dx: 0, dy: 1 };
       t = { x: B.l + B.w / 2, y: B.t, dx: 0, dy: -1 };
@@ -106,65 +128,73 @@ export default function Topology(p: Props) {
   };
 
   // --- obsah karet ---
-  const fmtIface = (label: string, ip: string, mask: string): ReactNode => {
-    if (!ip.trim() && !mask.trim()) return <span className="block text-slate-400">{label} —</span>;
-    const i = analyzeInterface(ip, mask, p.cidr);
-    const text = i.valid ? `${i.ipStr}${p.cidr ? '/' + i.prefix : ''}` : ip.trim() || '—';
-    return <span className="block"><span className="text-slate-400">{label}</span> {text}</span>;
+  const fmtIface = (label: string, ip: string, mask: string, suffix = ''): ReactNode => {
+    if (!(ip ?? '').trim() && !(mask ?? '').trim()) return <span className="block text-ink-4">{label} —</span>;
+    const i = analyzeInterface(ip ?? '', mask ?? '', p.cidr);
+    const text = i.valid ? `${i.ipStr}${p.cidr ? '/' + i.prefix : ''}` : (ip ?? '').trim() || '—';
+    return <span className="block"><span className="text-ink-4">{label}</span> {text}{suffix}</span>;
   };
   const c = p.cfg;
-  const summaries: Record<NodeId, ReactNode> = {
-    isp: <span className="block"><span className="text-slate-400">GW</span> {p.isp.gwIp}</span>,
-    r1: <>{fmtIface('WAN', c['r1-wan-ip'], c['r1-wan-mask'])}{fmtIface('LAN', c['r1-lan-ip'], c['r1-lan-mask'])}</>,
-    r2: <>{fmtIface('WAN', c['r2-wan-ip'], c['r2-wan-mask'])}{fmtIface('LAN', c['r2-lan-ip'], c['r2-lan-mask'])}</>,
-    pc: fmtIface('IP', c['pc-ip'], c['pc-mask']),
+  const summary = (id: NodeId): ReactNode => {
+    if (id === 'isp') return <span className="block"><span className="text-ink-4">GW</span> {p.isp.gwIp}</span>;
+    if (id === 'r1' || id === 'r2') {
+      return <>{fmtIface('WAN', c[`${id}-wan-ip`], c[`${id}-wan-mask`])}{fmtIface('LAN', c[`${id}-lan-ip`], c[`${id}-lan-mask`])}</>;
+    }
+    const d = deviceOf(id);
+    if (!d || d.kind === 'pc') return fmtIface('IP', c[`${id}-ip`], c[`${id}-mask`]);
+    const pub = (c[`${id}-pub`] ?? '').trim();
+    return <>{fmtIface('IP', c[`${id}-ip`], c[`${id}-mask`], `:${KIND_INFO[d.kind].port}`)}<span className="block"><span className="text-ink-4">PUB</span> {pub ? `:${pub}` : '—'}</span></>;
   };
   const nodesWithErrors = new Set<NodeId>([...p.errorFields].map(nodeOfField));
 
-  const defs: Record<NodeId, { name: string; sub: string; art: ReactNode; tint: string; idleIcon: 'globe' | 'minus'; idleClass: string }> = {
-    isp: { name: 'Internet / ISP', sub: 'Poskytovatel připojení', art: <CloudArt />, tint: 'bg-sky-50', idleIcon: 'globe', idleClass: 'bg-sky-800 text-sky-100' },
-    r1: { name: 'Router 1 (Hraniční)', sub: 'Hlavní směrovač do internetu', art: <RouterArt tone="blue" />, tint: 'bg-blue-50', idleIcon: 'minus', idleClass: 'bg-blue-800 text-blue-100' },
-    r2: { name: 'Router 2 (Vnitřní)', sub: 'Podřízený směrovač (LAN 2)', art: <RouterArt tone="indigo" />, tint: 'bg-indigo-50', idleIcon: 'minus', idleClass: 'bg-indigo-800 text-indigo-100' },
-    pc: { name: 'Klientské PC', sub: 'Koncová stanice (zdroj Ping)', art: <PcArt />, tint: 'bg-slate-100', idleIcon: 'minus', idleClass: 'bg-slate-700 text-slate-100' },
+  const def = (id: NodeId): Def => {
+    switch (id) {
+      case 'isp': return { name: 'Internet / ISP', sub: 'Poskytovatel připojení', art: <CloudArt />, tint: 'bg-sky-50 dark:bg-sky-950/50', idleIcon: 'globe', idleClass: 'bg-sky-800 text-sky-100' };
+      case 'r1': return { name: 'Router 1 (Hraniční)', sub: 'Hlavní směrovač do internetu', art: <RouterArt tone="blue" />, tint: 'bg-blue-50 dark:bg-blue-950/50', idleIcon: 'minus', idleClass: 'bg-blue-800 text-blue-100' };
+      case 'r2': return { name: 'Router 2 (Vnitřní)', sub: 'Podřízený směrovač (LAN 2)', art: <RouterArt tone="indigo" />, tint: 'bg-indigo-50 dark:bg-indigo-950/50', idleIcon: 'minus', idleClass: 'bg-indigo-800 text-indigo-100' };
+      case 'pc': return { name: 'Klientské PC', sub: 'Koncová stanice (zdroj Ping)', art: <PcArt />, tint: 'bg-surface-3', idleIcon: 'minus', idleClass: 'bg-slate-700 text-slate-100' };
+    }
+    const d = deviceOf(id)!;
+    if (d.kind === 'camera') return { name: d.name, sub: `Kamera · ${KIND_INFO.camera.service} ${KIND_INFO.camera.port}`, art: <CameraArt />, tint: 'bg-rose-50 dark:bg-rose-950/50', idleIcon: 'minus', idleClass: 'bg-rose-800 text-rose-100' };
+    if (d.kind === 'webserver') return { name: d.name, sub: `Web server · ${KIND_INFO.webserver.service} ${KIND_INFO.webserver.port}`, art: <ServerArt />, tint: 'bg-amber-50 dark:bg-amber-950/50', idleIcon: 'minus', idleClass: 'bg-amber-800 text-amber-100' };
+    return { name: d.name, sub: 'Koncová stanice', art: <PcArt />, tint: 'bg-surface-3', idleIcon: 'minus', idleClass: 'bg-slate-700 text-slate-100' };
   };
 
-  const packetPos = p.packet ? { left: px(E[p.packet.node].x + CARD_W / 2), top: px(E[p.packet.node].y) } : null;
+  const packetPos = p.packet && E[p.packet.node] ? { left: px(E[p.packet.node].x + CARD_W / 2), top: px(E[p.packet.node].y) } : null;
+  const linkPaths = links.filter((l) => E[l.from] && E[l.to]).map((l) => ({ l, ...anchors(l.from, l.to) }));
 
   return (
     <div
       ref={canvasRef}
       data-canvas
-      className="relative overflow-hidden rounded-xl border border-slate-200/80 bg-slate-50/70 bg-[radial-gradient(circle,#cbd5e1_1px,transparent_1px)] [background-size:1.4rem_1.4rem]"
+      className="relative overflow-hidden rounded-xl border border-line/80 bg-surface-2/70 bg-[radial-gradient(circle,var(--dot)_1px,transparent_1px)] [background-size:1.4rem_1.4rem]"
       style={{ height: canvasH }}
     >
       {/* kabely */}
       <svg className="absolute inset-0 pointer-events-none" width={canvasW} height={canvasH} aria-hidden="true">
-        {LINKS.map((l) => (
-          <path key={l.id} id={l.id} d={anchors(l.from, l.to).d} fill="none" strokeLinecap="round"
-            style={{ strokeWidth: '0.45rem', stroke: p.linkStatus[l.id] === 'ok' ? '#10b981' : '#cbd5e1', transition: 'stroke .3s' }} />
+        {linkPaths.map(({ l, d }) => (
+          <path key={l.id} id={l.id} d={d} fill="none" strokeLinecap="round"
+            style={{ strokeWidth: '0.45rem', stroke: p.linkStatus[l.id] === 'ok' ? '#10b981' : 'var(--cable-idle)', transition: 'stroke .3s' }} />
         ))}
       </svg>
-      {LINKS.map((l) => {
-        const m = anchors(l.from, l.to).mid;
-        return (
-          <span key={l.id} className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none z-[5] rounded-full bg-white/90 border border-slate-200 px-2 py-0.5 text-xs font-mono font-bold text-slate-500 tracking-tight"
-            style={{ left: m.x, top: m.y }}>
-            {l.label}
-          </span>
-        );
-      })}
+      {linkPaths.map(({ l, mid }) => (
+        <span key={l.id} className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none z-[5] rounded-full bg-surface/90 border border-line px-2 py-0.5 text-xs font-mono font-bold text-ink-3 tracking-tight"
+          style={{ left: mid.x, top: mid.y }}>
+          {l.label}
+        </span>
+      ))}
 
       {/* zařízení */}
-      {NODE_ORDER.map((id) => {
+      {nodeIds.map((id) => {
         const e = E[id];
         const open = p.openNode === id;
         return (
           <div key={id} data-node-root={id} className="absolute" style={{ left: `${e.x}rem`, top: `${e.y}rem`, width: `${CARD_W}rem`, zIndex: open ? 30 : 10 }}>
             <DeviceCard
               nodeId={id}
-              {...defs[id]}
-              summary={summaries[id]}
-              status={p.nodeStatus[id]}
+              {...def(id)}
+              summary={summary(id)}
+              status={p.nodeStatus[id] ?? 'idle'}
               hasError={nodesWithErrors.has(id)}
               open={open}
               x={e.x}
@@ -177,22 +207,31 @@ export default function Topology(p: Props) {
               <div
                 ref={sheet ? undefined : panelRef}
                 className={sheet
-                  ? 'fixed inset-x-2 bottom-2 z-50 max-h-[78vh] overflow-y-auto rounded-2xl animate-sheet'
-                  : `absolute top-0 -z-10 ${panelLayout!.side === 'right' ? 'animate-panel-right' : 'animate-panel-left'}`}
-                style={sheet ? undefined : panelLayout!.side === 'right'
-                  ? { left: `calc(100% + ${1}rem)`, width: panelLayout!.widthPx }
-                  : { right: `calc(100% + ${1}rem)`, width: panelLayout!.widthPx }}
+                  ? 'fixed inset-x-2 bottom-2 mx-auto max-w-[36rem] z-50 max-h-[78vh] overflow-y-auto rounded-2xl animate-sheet'
+                  : `absolute -z-10 ${panelLayout!.mode === 'right' ? 'top-0 animate-panel-right' : panelLayout!.mode === 'left' ? 'top-0 animate-panel-left' : 'animate-sheet'}`}
+                style={sheet ? undefined
+                  : panelLayout!.mode === 'right' ? { left: 'calc(100% + 1rem)', width: panelLayout!.widthPx }
+                  : panelLayout!.mode === 'left' ? { right: 'calc(100% + 1rem)', width: panelLayout!.widthPx }
+                  : { top: `${CARD_H + 0.75}rem`, left: panelLayout!.leftPx, width: panelLayout!.widthPx }}
               >
                 <SetupPanel
                   node={id}
+                  device={deviceOf(id)}
                   cfg={p.cfg}
                   onField={p.onField}
                   errorFields={p.errorFields}
                   isp={p.isp}
                   cidr={p.cidr}
                   showCalc={p.showCalc}
+                  rules={p.rules}
+                  onAddRule={p.onAddRule}
+                  onRemoveRule={p.onRemoveRule}
                   onClose={p.onCloseNode}
-                  onAutoFillPc={p.onAutoFillPc}
+                  onAutoFill={p.onAutoFill}
+                  onRemoveDevice={p.onRemoveDevice}
+                  onRename={p.onRename}
+                  onTestPing={p.onTestPing}
+                  onTestInbound={p.onTestInbound}
                 />
               </div>
             )}

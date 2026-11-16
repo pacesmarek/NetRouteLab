@@ -34,7 +34,7 @@ export default function DeviceCard(p: Props) {
   const border =
     p.status === 'ok' ? 'border-emerald-500 ring-4 ring-emerald-500/20'
     : p.status === 'error' ? 'border-rose-500 ring-4 ring-rose-500/20'
-    : 'border-slate-300';
+    : 'border-line-strong';
 
   return (
     <button
@@ -45,7 +45,7 @@ export default function DeviceCard(p: Props) {
       aria-controls={`panel-${p.nodeId}`}
       title="Klik = nastavení zařízení · tažení = přesun"
       style={{ width: `${CARD_W}rem`, height: `${CARD_H}rem`, touchAction: 'none' }}
-      className={`relative flex flex-col text-left bg-white border-[3px] rounded-2xl overflow-hidden select-none
+      className={`relative flex flex-col text-left bg-surface border-[3px] rounded-2xl overflow-hidden select-none
         ${border} ${p.open ? 'outline-[3px] outline-blue-400/50 outline-offset-2' : ''}
         ${dragging ? 'shadow-2xl scale-[1.02] cursor-grabbing' : 'shadow-sm hover:shadow-md cursor-grab'}
         transition-[box-shadow,transform,border-color]`}
@@ -85,12 +85,12 @@ export default function DeviceCard(p: Props) {
           <TriangleAlert className="w-3.5 h-3.5" /> Chyba
         </span>
       )}
-      <span className={`${p.tint} flex items-center justify-center h-[6.4rem] shrink-0 border-b border-slate-200`}>{p.art}</span>
+      <span className={`${p.tint} flex items-center justify-center h-[6.4rem] shrink-0 border-b border-line`}>{p.art}</span>
       <span className="flex flex-col flex-1 px-3.5 py-2.5 min-h-0">
-        <span className="block font-bold text-base leading-tight text-slate-900">{p.name}</span>
-        <span className="block text-xs text-slate-500 mt-0.5">{p.sub}</span>
-        <span className="block font-mono text-xs text-slate-600 mt-1.5 space-y-0.5 flex-1">{p.summary}</span>
-        <span className="flex items-center justify-between text-sm font-semibold text-blue-700">
+        <span className="block font-bold text-base leading-tight text-ink">{p.name}</span>
+        <span className="block text-xs text-ink-3 mt-0.5">{p.sub}</span>
+        <span className="block font-mono text-xs text-ink-2 mt-1.5 space-y-0.5 flex-1">{p.summary}</span>
+        <span className="flex items-center justify-between text-sm font-semibold text-blue-700 dark:text-blue-300">
           <span>Nastavení zařízení</span>
           <ChevronRight className={`w-5 h-5 transition-transform ${p.open ? 'rotate-180' : ''}`} />
         </span>

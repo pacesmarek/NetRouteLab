@@ -1,13 +1,45 @@
 @import "tailwindcss";
 
+/* Tmavý režim: třída .dark na <html> (nastavuje aplikace; viz Nastavení → Vzhled) */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
+  /* sémantické barvy povrchů a textu – v tmavém režimu se přepisují níže */
+  --color-surface: #ffffff;
+  --color-surface-2: #f8fafc;
+  --color-surface-3: #f1f5f9;
+  --color-line: #e2e8f0;
+  --color-line-strong: #cbd5e1;
+  --color-ink: #0f172a;
+  --color-ink-2: #475569;
+  --color-ink-3: #64748b;
+  --color-ink-4: #94a3b8;
+
   --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, monospace;
 }
 
+:root { --dot: #cbd5e1; --cable-idle: #cbd5e1; }
+:root.dark {
+  --color-surface: #111b2e;
+  --color-surface-2: #0b1220;
+  --color-surface-3: #1b2740;
+  --color-line: #26354d;
+  --color-line-strong: #3a4c69;
+  --color-ink: #f1f5f9;
+  --color-ink-2: #cbd5e1;
+  --color-ink-3: #a3b2c7;
+  --color-ink-4: #75869f;
+  --dot: #1f2d45;
+  --cable-idle: #3f5272;
+}
+
 html { font-size: 18px; }
-body { background: #f8fafc; color: #1e293b; font-family: var(--font-sans); }
-button { cursor: pointer; }
+@layer base {
+  body { background: var(--color-surface-2); color: var(--color-ink); font-family: var(--font-sans); }
+  button { cursor: pointer; }
+  input { color: var(--color-ink); }
+}
 
 @keyframes panel-in-right { from { opacity: 0; transform: translateX(-2.5rem); } to { opacity: 1; transform: none; } }
 @keyframes panel-in-left  { from { opacity: 0; transform: translateX(2.5rem); }  to { opacity: 1; transform: none; } }
