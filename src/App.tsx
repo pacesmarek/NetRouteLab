@@ -1,4 +1,4 @@
-import { ClipboardList, Network, Play, Route } from 'lucide-react';
+import { ClipboardList, Play, Route } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { APP_VERSION } from './changelog';
 import ChangelogDialog from './components/ChangelogDialog';
@@ -913,12 +913,6 @@ export default function App() {
 
         <div className={wide ? 'grid grid-cols-[minmax(0,1fr)_22rem] gap-5 items-start' : 'space-y-5'}>
           <section className="bg-surface border border-line rounded-2xl p-3 sm:p-4 shadow-sm">
-            <div className="flex flex-wrap items-start justify-between gap-3 mb-3 px-1">
-              <div>
-                <h2 className="text-lg font-bold text-ink flex items-center gap-2"><Network className="w-5 h-5 text-blue-600 dark:text-blue-400" /> Topologie sítě</h2>
-                <p className="text-sm text-ink-3 mt-0.5">Klikněte na zařízení – jeho nastavení vyjede do strany. Zařízení můžete přetahovat, plochu přibližovat (Ctrl + kolečko, dva prsty). Kliknutím mimo nastavení zavřete.</p>
-              </div>
-            </div>
             <div className="flex flex-wrap items-center gap-4 text-sm font-medium mb-3 px-1">
               <span className="flex items-center gap-1.5"><span className="w-3.5 h-3.5 rounded-sm bg-blue-100 dark:bg-blue-900/50 border border-blue-400 dark:border-blue-600 inline-block" /> WAN port (vnější)</span>
               <span className="flex items-center gap-1.5"><span className="w-3.5 h-3.5 rounded-sm bg-emerald-100 dark:bg-emerald-900/50 border border-emerald-400 dark:border-emerald-600 inline-block" /> LAN port (vnitřní)</span>
