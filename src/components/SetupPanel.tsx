@@ -1,6 +1,8 @@
-import { ArrowDown, Cloud, Globe, Monitor, Network, Plus, Router, Server, Trash2, Video, Wand2, Wifi, X } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { ArrowDown, Cloud, Globe, Loader2, Monitor, Network, Plus, Router, Server, Trash2, Video, Wand2, Wifi, X } from 'lucide-react';
+import { useContext, type ReactNode } from 'react';
 import { serverLoc, type DhcpResult } from '../lib/dhcp';
+import { RunningContext } from './RunContext';
+import InboundPreviewCard from './InboundPreview';
 import Toggle from './Toggle';
 import { descendants } from '../lib/graph';
 import type { ApMode, Config, Device, DeviceKind, FieldId, IspConfig, NodeId, RouterId, Rules, Uplinks } from '../lib/model';
@@ -119,9 +121,7 @@ export default function SetupPanel(p: PanelProps) {
           )}
           {isL2(dev) || isRouter(dev) ? null : dev.kind === 'pc' ? (
             <div className="px-4 pb-4 bg-emerald-50/50 dark:bg-emerald-950/30">
-              <button type="button" onClick={() => p.onTestPing(dev.id)} className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-base font-bold transition">
-                Ping do internetu z tohoto PC
-              </button>
+              <PingButton onClick={() => p.onTestPing(dev.id)} />
             </div>
           ) : (
             <ServiceSection {...p} device={dev} />
@@ -575,8 +575,21 @@ function ApDhcp(p: PanelProps & { device: Device; owner: NodeId | null }) {
   );
 }
 
+const testBtn = 'w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-white text-base font-bold transition disabled:opacity-60 disabled:cursor-not-allowed';
+
+function PingButton({ onClick }: { onClick: () => void }) {
+  const running = useContext(RunningContext);
+  return (
+    <button type="button" onClick={onClick} disabled={running !== null} className={`${testBtn} bg-blue-600 hover:bg-blue-700`}>
+      {running === 'ping' && <Loader2 className="w-5 h-5 animate-spin" />}
+      {running === 'ping' ? 'Testuji…' : 'Ping do internetu z tohoto PC'}
+    </button>
+  );
+}
+
 function ServiceSection(p: PanelProps & { device: Device }) {
   const d = p.device;
+  const running = useContext(RunningContext);
   const svc = fieldMaker(p, 'svc');
   const pub = (p.cfg[`${d.id}-pub`] ?? '').trim();
   const topId = p.free ? p.topRouter : 'r1';
@@ -591,9 +604,10 @@ function ServiceSection(p: PanelProps & { device: Device }) {
           <div className="font-mono text-sm break-all bg-surface border border-line rounded-lg px-3 py-2.5 text-ink">{addr}</div>
         </div>
       </div>
-      <button type="button" onClick={() => p.onTestInbound(d.id)} className={`w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-base font-bold transition`}>
-        <Globe className="w-5 h-5" /> Otestovat přístup z internetu
+      <button type="button" onClick={() => p.onTestInbound(d.id)} disabled={running !== null} className={`${testBtn} bg-violet-600 hover:bg-violet-700`}>
+        {running === `in:${d.id}` ? <Loader2 className="w-5 h-5 animate-spin" /> : <Globe className="w-5 h-5" />} {running === `in:${d.id}` ? 'Testuji…' : 'Otestovat přístup z internetu'}
       </button>
+      <InboundPreviewCard deviceId={d.id} />
     </Section>
   );
 }

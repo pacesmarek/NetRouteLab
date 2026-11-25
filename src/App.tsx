@@ -1,10 +1,12 @@
-import { ClipboardList, Play, Route } from 'lucide-react';
+import { ClipboardList, Loader2, Play, Route } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { APP_VERSION } from './changelog';
 import ChangelogDialog from './components/ChangelogDialog';
 import { CARD_H, CARD_W, type Status } from './components/DeviceCard';
 import DevicePalette from './components/DevicePalette';
 import Diagnostics, { type Tone } from './components/Diagnostics';
+import { RunningContext } from './components/RunContext';
+import { PreviewContext, type PreviewInfo } from './components/InboundPreview';
 import Header, { FONT_PX, SPEED_MULT, type FontKey, type SpeedKey, type ThemeKey } from './components/Header';
 import TabBar, { type TabView } from './components/TabBar';
 import TaskPicker from './components/TaskPicker';
@@ -15,7 +17,7 @@ import {
   assignmentOf, decodeDoc, docForScenario, encodeDoc, fieldsOfDevice, nextDeviceNumber, playgroundDoc, sanitizeDoc, shareUrl, type Doc,
 } from './lib/doc';
 import {
-  canParent, dhcpConflicts as findDhcpConflicts, dhcpServerOf, freeNodes, kindOf, nameOf as topoName, ownerOf, pathAndLinks, simulateFree, simulateInboundFree, traceHopsFree, treeLayout, type Topo,
+  canParent, dhcpConflicts as findDhcpConflicts, dhcpServerOf, freeNodes, kindOf, nameOf as topoName, ownerOf, pathAndLinks, simulateFree, simulateInboundFree, topRouterOf, traceHopsFree, treeLayout, type Topo,
 } from './lib/free';
 import { resolveDhcp } from './lib/dhcp';
 import { fmtMask, ipMask } from './lib/format';
@@ -27,6 +29,7 @@ import {
 import { analyzeInterface, ipToLong, longToIp } from './lib/net';
 import { makePlan, solve } from './lib/plan';
 import { simulate, simulateInbound, PC_CLIENT, type Other, type SimResult } from './lib/simulate';
+import { fireConfetti } from './lib/confetti';
 import { scrollToCanvas, scrollToFirstError } from './lib/scroll';
 import { playSound, unlockAudio } from './lib/sound';
 
@@ -118,6 +121,8 @@ export default function App() {
   const [wizard, setWizard] = useState(false);
   const [tasks, setTasks] = useState(false);
   const [changelog, setChangelog] = useState(false);
+  const [preview, setPreview] = useState<PreviewInfo | null>(null);
+  const [running, setRunning] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const [nodeStatus, setNodeStatus] = useState<Record<NodeId, Status>>({});
@@ -243,6 +248,8 @@ export default function App() {
     setLinkStatus({});
     setPacket(null);
     setErrorFields(new Set());
+    setPreview(null);
+    setRunning(null);
   }, []);
   useEffect(() => () => { stopAnim(); window.clearTimeout(toastTimer.current); }, []);
 
@@ -298,11 +305,18 @@ export default function App() {
     setOpenNode(owners.includes(res.stopNode) || !owners.length ? res.stopNode : owners[0]);
   };
 
+  /** Spinner na tlačítku testu aspoň na chvíli, i když test skončí hned (chyba na prvním uzlu). */
+  const MIN_SPIN_MS = 700;
+  const stopRunning = (startedAt: number) =>
+    window.setTimeout(() => setRunning(null), Math.max(0, MIN_SPIN_MS - (performance.now() - startedAt)));
+
   /** Animace průchodu paketu po `path` (po `links`) a vyhodnocení výsledku. */
-  const animate = (path: NodeId[], links: LinkId[], res: SimResult, labels: { run: string; ok: string; err: string; badgeOk: string }) => {
+  const animate = (path: NodeId[], links: LinkId[], res: SimResult, labels: { run: string; ok: string; err: string; badgeOk: string; onOk?: () => void; busy?: string }) => {
     unlockAudio();
     resetVisual();
     scrollToCanvas();
+    setRunning(labels.busy ?? 'ping');
+    const startedAt = performance.now();
     const stopIdx = Math.max(0, path.indexOf(res.stopNode));
     let step = 0;
     setPacket({ node: path[0], kind: 'run', label: labels.run });
@@ -319,11 +333,14 @@ export default function App() {
         return;
       }
       setLogs(res.logs);
+      stopRunning(startedAt);
       if (res.ok) {
         setNodeStatus((s) => ({ ...s, [cur]: 'ok' }));
         setPacket({ node: cur, kind: 'ok', label: labels.ok });
         setBadge({ text: labels.badgeOk, tone: 'success' });
         playSound('ok', sound);
+        fireConfetti();
+        if (labels.onOk) window.setTimeout(labels.onOk, 700); // chvíli nechat vidět zelenou animaci
       } else {
         setNodeStatus((s) => ({ ...s, [cur]: 'error' }));
         setPacket({ node: cur, kind: 'error', label: labels.err });
@@ -385,24 +402,31 @@ export default function App() {
   const runInbound = (deviceId: NodeId) => {
     const dev = devices.find((d) => d.id === deviceId);
     if (!dev) return;
+    const showPreview = () => {
+      if (dev.kind !== 'camera' && dev.kind !== 'webserver') return;
+      const topId = free ? topRouterOf(topo, deviceId) : 'r1';
+      const ip = topId ? analyzeInterface(effCfg[`${topId}-wan-ip`] ?? '', effCfg[`${topId}-wan-mask`] ?? '', cidr) : null;
+      const port = (effCfg[`${deviceId}-pub`] ?? '').trim();
+      setPreview({ deviceId, kind: dev.kind, name: dev.name, addr: `${ip?.valid ? ip.ipStr : '<veřejná IP>'}:${port}` });
+    };
     if (free) {
       const res = dhcpFailure(deviceId) ?? simulateInboundFree(effCfg, isp, topo, deviceId, rules, cidr, fmt);
       const { path, links } = pathAndLinks(topo, deviceId);
       animate([...path].reverse(), [...links].reverse(), res,
-        { run: `TCP z internetu...`, ok: `✓ ${dev.name} odpovídá`, err: '✕ Spojení zahozeno', badgeOk: `${dev.name} je dostupné z internetu!` });
+        { run: `TCP z internetu...`, ok: `✓ ${dev.name} odpovídá`, err: '✕ Spojení zahozeno', badgeOk: `${dev.name} je dostupné z internetu!`, onOk: showPreview, busy: `in:${deviceId}` });
       return;
     }
     const cut = unpluggedPath(deviceId);
     if (cut) {
       const rev = [...cut.chain].reverse();
-      animate(rev, linksOfPath(uplinks, rev) as LinkId[], cut.res, { run: `TCP z internetu...`, ok: '', err: '✕ Spojení zahozeno', badgeOk: '' });
+      animate(rev, linksOfPath(uplinks, rev) as LinkId[], cut.res, { run: `TCP z internetu...`, ok: '', err: '✕ Spojení zahozeno', badgeOk: '', busy: `in:${deviceId}` });
       return;
     }
     const res = dhcpFailure(deviceId) ?? simulateInbound(effCfg, isp, cidr, fmt, dev, rules, othersFor(deviceId));
     const proto = 'TCP';
     const path = inboundPath(uplinks, deviceId);
     animate(path, linksOfPath(uplinks, path) as LinkId[], res,
-      { run: `${proto} z internetu...`, ok: `✓ ${dev.name} odpovídá`, err: '✕ Spojení zahozeno', badgeOk: `${dev.name} je dostupné z internetu!` });
+      { run: `${proto} z internetu...`, ok: `✓ ${dev.name} odpovídá`, err: '✕ Spojení zahozeno', badgeOk: `${dev.name} je dostupné z internetu!`, onOk: showPreview, busy: `in:${deviceId}` });
   };
 
   /** Traceroute z klientského PC: paket postupně doputuje na každý hop (TTL 1, 2, 3 …). */
@@ -424,6 +448,8 @@ export default function App() {
 
     setLogs([{ type: 'info', title: `traceroute to ${isp.dnsIp}, 30 hops max`, text: `Ze zařízení ${free ? topoName(topo, src) : 'Klientské PC'}. Každý hop je zařízení, na kterém vyprší TTL a které odpoví.` }]);
     setBadge({ text: 'Traceroute běží…', tone: 'neutral' });
+    setRunning('trace');
+    const startedAt = performance.now();
     setPacket({ node: src, kind: 'run', label: 'TTL=1' });
 
     let i = 0;
@@ -447,6 +473,7 @@ export default function App() {
         setPacket({ node: last, kind: 'error', label: `TTL=${hop.ttl}: * * *` });
         setLogs((l) => [...l, { type: 'error', title: `${hop.ttl}   * * *`, text: 'Žádná odpověď (vypršel časový limit).' }, ...res.logs.filter((x) => x.type === 'error')]);
         setBadge({ text: `Traceroute selhal na hopu ${hop.ttl}`, tone: 'error' });
+        stopRunning(startedAt);
         showFailure(res);
         playSound('error', sound);
         window.setTimeout(() => scrollToFirstError(res.errorFields, res.stopNode), 350);
@@ -455,7 +482,9 @@ export default function App() {
         setNodeStatus((s) => ({ ...s, [lastNode]: 'ok' }));
         setPacket({ node: lastNode, kind: 'ok', label: '✓ Cíl dosažen' });
         setBadge({ text: `Cíl dosažen za ${hops.length} hopy`, tone: 'success' });
+        stopRunning(startedAt);
         playSound('ok', sound);
+        fireConfetti();
       }
     };
     timer.current = window.setTimeout(step, 150);
@@ -851,19 +880,21 @@ export default function App() {
           </select>
         </label>
       )}
-      <button id="btn-run-test" onClick={() => runPing(free ? testSource ?? undefined : 'pc')} disabled={free && !testSource}
+      <button id="btn-run-test" onClick={() => runPing(free ? testSource ?? undefined : 'pc')} disabled={(free && !testSource) || running !== null}
         className="flex-1 lg:flex-none inline-flex items-center justify-center gap-2 px-6 py-3.5 text-base font-bold rounded-xl bg-blue-600 text-white hover:bg-blue-700 active:scale-[0.99] transition shadow-md shadow-blue-600/20 disabled:opacity-50 disabled:cursor-not-allowed">
-        <Play className="w-5 h-5 fill-current shrink-0" /> Otestovat připojení (Ping)
+        {running === 'ping' ? <Loader2 className="w-5 h-5 shrink-0 animate-spin" /> : <Play className="w-5 h-5 fill-current shrink-0" />} {running === 'ping' ? 'Testuji…' : 'Otestovat připojení (Ping)'}
       </button>
-      <button id="btn-trace" onClick={runTrace} disabled={free && !testSource} title="Traceroute k cílovému serveru – paket putuje hop po hopu"
+      <button id="btn-trace" onClick={runTrace} disabled={(free && !testSource) || running !== null} title="Traceroute k cílovému serveru – paket putuje hop po hopu"
         className="inline-flex items-center justify-center gap-2 px-4 py-3 text-base font-bold rounded-xl border-2 border-blue-600 text-blue-700 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950/50 active:scale-[0.99] transition disabled:opacity-50 disabled:cursor-not-allowed">
-        <Route className="w-5 h-5 shrink-0" /> Traceroute (hop po hopu)
+        {running === 'trace' ? <Loader2 className="w-5 h-5 shrink-0 animate-spin" /> : <Route className="w-5 h-5 shrink-0" />} {running === 'trace' ? 'Testuji…' : 'Traceroute (hop po hopu)'}
       </button>
     </div>
   );
   const diag = <Diagnostics logs={logs} badge={badge.text} tone={badge.tone} />;
 
   return (
+    <RunningContext.Provider value={running}>
+    <PreviewContext.Provider value={{ info: preview, hide: () => setPreview(null) }}>
     <div className="min-h-screen flex flex-col selection:bg-blue-100 dark:selection:bg-blue-900/50 selection:text-blue-900 dark:selection:text-blue-100">
       <Header
         showCalc={showCalc}
@@ -1019,6 +1050,7 @@ export default function App() {
         />
       )}
     </div>
+    </PreviewContext.Provider>
+    </RunningContext.Provider>
   );
 }
-
