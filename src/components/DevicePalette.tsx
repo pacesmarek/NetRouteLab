@@ -24,7 +24,7 @@ const ITEMS: Item[] = [
     badge: 'bg-slate-700 text-white dark:bg-slate-600',
   },
   {
-    kind: 'camera', title: 'Kamera', sub: 'RTSP · port 554', icon: <Video className="w-6 h-6" />,
+    kind: 'camera', title: 'Kamera', sub: 'Dostupná z internetu na svém portu', icon: <Video className="w-6 h-6" />,
     tile: 'border-violet-300 dark:border-violet-700 dark:border-violet-800 hover:border-violet-500 hover:bg-violet-50 dark:hover:bg-violet-950/50',
     badge: 'bg-violet-600 text-white',
   },

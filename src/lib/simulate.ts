@@ -264,7 +264,7 @@ export function simulateInbound(
   const D = device.id;
   const dn = device.name;
   const info = KIND_INFO[device.kind];
-  const svcPort = info.port ?? 80;
+  const svc = info.service ? ` (${info.service})` : '';
   const df = (s: string): FieldId => `${D}-${s}`;
 
   const fail = (stopNode: NodeId, title: string, text: string, errorFields: FieldId[]): SimResult => {
@@ -300,6 +300,8 @@ export function simulateInbound(
     return fail('isp', 'Chybí veřejný port',
       `U zařízení ${dn} zadejte veřejný port (1–65535), na kterém bude dostupné z internetu, např. 8081.`, [df('pub')]);
   }
+  // kamera nemá pevný port služby – poslouchá na portu zadaném v poli zařízení
+  const svcPort = device.kind === 'camera' ? pub : (info.port ?? 80);
   pass(`1. Internet → Router 1: požadavek na ${r1Wan.ipStr}:${pub}`,
     `Klient z internetu se připojuje na veřejnou adresu Routeru 1 (${r1Wan.ipStr}) a port ${pub}.`);
 
@@ -388,7 +390,7 @@ export function simulateInbound(
   }
   if (r2TargetPort !== svcPort) {
     return fail('r2', 'Pravidlo PAT na Routeru 2 míří na špatný port',
-      `${dn} poslouchá na portu ${svcPort} (${info.service}), ale pravidlo přesměrovává na port ${cfg[ruleField('r2', rule2, 'port')]?.trim() || 'nevyplněno'}.`,
+      `${dn} poslouchá na portu ${svcPort}${svc}, ale pravidlo přesměrovává na port ${cfg[ruleField('r2', rule2, 'port')]?.trim() || 'nevyplněno'}.`,
       [ruleField('r2', rule2, 'port')]);
   }
   if (!isSameSubnet(dev, r2Lan)) {
@@ -411,7 +413,7 @@ export function simulateInbound(
   pass(`3. Router 2 (PAT): ${r1TargetPort} → ${dev.ipStr}:${svcPort}`,
     `Router 2 přeložil port ${r1TargetPort} na ${dev.ipStr}:${svcPort} a doručil paket zařízení ${dn}.`);
   pass(`4. ${dn} dostupné z internetu`,
-    `Služba ${info.service} (port ${svcPort}) odpověděla. Zvenku se na ni připojíte na ${r1Wan.ipStr}:${pub}.`);
+    `Služba${svc} na portu ${svcPort} odpověděla. Zvenku se na ni připojíte na ${r1Wan.ipStr}:${pub}.`);
 
   return { ok: true, stopNode: D, logs, errorFields: [] };
 }

@@ -54,7 +54,7 @@ export const KIND_INFO: Record<DeviceKind, { label: string; port?: number; servi
   router: { label: 'Router' },
   switch: { label: 'Switch' },
   ap: { label: 'Wi-Fi AP' },
-  camera: { label: 'Kamera', port: 554, service: 'RTSP' },
+  camera: { label: 'Kamera' },
   webserver: { label: 'Web server', port: 80, service: 'HTTP' },
 };
 
@@ -139,7 +139,7 @@ export const SCENARIOS: Scenario[] = [
   {
     title: 'Scénář #5: Kamerový systém – tři kamery z internetu',
     summary: 'Tři IP kamery v LAN 2, každá dostupná z internetu na vlastním portu (8081–8083) přes dvojitý NAT.',
-    note: 'Kamery musí být dostupné z internetu na veřejných portech 8081, 8082 a 8083 (RTSP, port služby 554). Nastavte PAT na obou routerech.',
+    note: 'Kamery musí být dostupné z internetu na portech 8081, 8082 a 8083 (každá kamera na svém). Nastavte PAT na obou routerech.',
     ispGw: '90.176.20.1', ispMask: '255.255.255.0', ispDns: '8.8.8.8',
     lan1RequiredNet: '192.168.10.0', lan1RequiredPrefix: 24,
     lan2RequiredNet: '10.10.0.0', lan2RequiredPrefix: 24,
@@ -148,7 +148,7 @@ export const SCENARIOS: Scenario[] = [
   {
     title: 'Scénář #6: Server a kamera za switchem',
     summary: 'Web server a kamera zapojené přes switch do LAN 2; obě zařízení zpřístupněte z internetu.',
-    note: 'Web server (HTTP 80) i kamera (RTSP 554) jsou zapojeny přes switch. Zpřístupněte je z internetu pomocí PAT; každé na vlastním veřejném portu.',
+    note: 'Web server (HTTP 80) i kamera jsou zapojeny přes switch. Zpřístupněte je z internetu pomocí PAT; každé na vlastním portu.',
     ispGw: '147.32.10.1', ispMask: '255.255.255.128', ispDns: '1.1.1.1',
     lan1RequiredNet: '172.20.0.0', lan1RequiredPrefix: 24,
     lan2RequiredNet: '192.168.77.0', lan2RequiredPrefix: 24,

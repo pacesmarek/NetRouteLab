@@ -582,15 +582,19 @@ function ServiceSection(p: PanelProps & { device: Device }) {
   const pub = (p.cfg[`${d.id}-pub`] ?? '').trim();
   const topId = p.free ? p.topRouter : 'r1';
   const wanIp = topId ? analyzeInterface(p.cfg[`${topId}-wan-ip`] ?? '', p.cfg[`${topId}-wan-mask`] ?? '', p.cidr) : { valid: false as const };
-  const url = `${d.kind === 'camera' ? 'rtsp' : 'http'}://${wanIp.valid ? wanIp.ipStr : '<veřejná IP>'}:${pub || '<port>'}`;
+  const addr = `${wanIp.valid ? wanIp.ipStr : '<veřejná IP>'}:${pub || '<port>'}`;
+  const url = d.kind === 'camera' ? addr : `http://${addr}`;
+  const isCam = d.kind === 'camera';
   return (
     <Section tone="svc" title="Služba a přístup z internetu">
-      <div className="text-sm text-ink-2 flex items-center justify-between bg-surface/80 border border-line rounded-lg px-3 py-2">
-        <span>Služba zařízení</span>
-        <strong className="font-mono text-ink">{info.service} · port {info.port}</strong>
-      </div>
+      {!isCam && (
+        <div className="text-sm text-ink-2 flex items-center justify-between bg-surface/80 border border-line rounded-lg px-3 py-2">
+          <span>Služba zařízení</span>
+          <strong className="font-mono text-ink">{info.service} · port {info.port}</strong>
+        </div>
+      )}
       <div className={grid2}>
-        {svc(`${d.id}-pub`, 'Veřejný port (zvenku)')}
+        {svc(`${d.id}-pub`, isCam ? 'Port kamery' : 'Veřejný port (zvenku)')}
         <div>
           <div className="block text-sm font-semibold text-ink mb-1">Adresa pro klienta</div>
           <div className="font-mono text-sm break-all bg-surface border border-line rounded-lg px-3 py-2.5 text-ink">{url}</div>

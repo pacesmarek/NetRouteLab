@@ -59,9 +59,9 @@ function deviceSteps(d: Device, p: Plan, sol: Solution): Step[] {
   steps.push(
     {
       node: d.id, fields: [`${d.id}-pub`],
-      title: `${d.name}: veřejný port`,
+      title: d.kind === 'camera' ? `${d.name}: port kamery` : `${d.name}: veřejný port`,
       body: <>Zvenku se na veřejnou IP routeru připojuje jen přes číslo portu. Každé zařízení (kamera, server) proto potřebuje na veřejné adrese <B>svůj vlastní port</B>. Zvolte např. <C>{pub}</C>. Přístupová adresa se zobrazí pod polem.</>,
-      fill: [fillOf(sol, `${d.id}-pub`, 'Veřejný port', 'text')],
+      fill: [fillOf(sol, `${d.id}-pub`, d.kind === 'camera' ? 'Port kamery' : 'Veřejný port', 'text')],
     },
     {
       node: 'r1', fields: [ruleField('r1', d.id, 'ext'), ruleField('r1', d.id, 'ip'), ruleField('r1', d.id, 'port')],
@@ -74,7 +74,7 @@ function deviceSteps(d: Device, p: Plan, sol: Solution): Step[] {
       node: 'r2', fields: [ruleField('r2', d.id, 'ext'), ruleField('r2', d.id, 'ip'), ruleField('r2', d.id, 'port')],
       ensure: { r1: [], r2: [d.id] },
       title: `PAT na Routeru 2 pro ${d.name}`,
-      body: <>Router 2 přijme port <C>{pub}</C> od Routeru 1 a přesměruje ho na <B>IP zařízení</B> a <B>port jeho služby</B>: {info.service} = <C>{String(info.port)}</C>.</>,
+      body: <>Router 2 přijme port <C>{pub}</C> od Routeru 1 a přesměruje ho na <B>IP zařízení</B> a <B>port jeho služby</B>: {d.kind === 'camera' ? <>port kamery = <C>{pub}</C></> : <>{info.service} = <C>{String(info.port)}</C></>}.</>,
       fill: [fillOf(sol, ruleField('r2', d.id, 'ext'), 'Vnější port', 'text'), fillOf(sol, ruleField('r2', d.id, 'ip'), 'Cílová IP'), fillOf(sol, ruleField('r2', d.id, 'port'), 'Cílový port', 'text')],
     },
   );

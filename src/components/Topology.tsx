@@ -320,14 +320,14 @@ export default function Topology(p: Props) {
     }
     if ((c[`${id}-dhcp`] ?? '') === '1') {
       const l = p.dhcp.leases[id];
-      const dh = <span className="block"><span className="text-ink-4">DHCP</span> {l ? l.ip : <span className="text-rose-600 dark:text-rose-400">bez adresy</span>}{d && d.kind !== 'pc' ? `:${KIND_INFO[d.kind].port}` : ''}</span>;
+      const dh = <span className="block"><span className="text-ink-4">DHCP</span> {l ? l.ip : <span className="text-rose-600 dark:text-rose-400">bez adresy</span>}{d && d.kind === 'webserver' ? `:${KIND_INFO.webserver.port}` : ''}</span>;
       if (!d || d.kind === 'pc') return dh;
       const pub0 = (c[`${id}-pub`] ?? '').trim();
       return <>{dh}<span className="block"><span className="text-ink-4">PUB</span> {pub0 ? `:${pub0}` : '—'}</span></>;
     }
     if (!d || d.kind === 'pc') return fmtIface('IP', c[`${id}-ip`], c[`${id}-mask`]);
     const pub = (c[`${id}-pub`] ?? '').trim();
-    return <>{fmtIface('IP', c[`${id}-ip`], c[`${id}-mask`], `:${KIND_INFO[d.kind].port}`)}<span className="block"><span className="text-ink-4">PUB</span> {pub ? `:${pub}` : '—'}</span></>;
+    return <>{fmtIface('IP', c[`${id}-ip`], c[`${id}-mask`], d.kind === 'webserver' ? `:${KIND_INFO.webserver.port}` : undefined)}<span className="block"><span className="text-ink-4">PUB</span> {pub ? `:${pub}` : '—'}</span></>;
   };
   const nodesWithErrors = new Set<NodeId>([...p.errorFields].map(nodeOfField));
 
@@ -339,7 +339,7 @@ export default function Topology(p: Props) {
       case 'pc': return { name: 'Klientské PC', sub: 'Koncová stanice (zdroj Ping)', art: <PcArt />, tint: 'bg-surface-3', idleIcon: 'minus', idleClass: 'bg-slate-700 text-slate-100' };
     }
     const d = deviceOf(id)!;
-    if (d.kind === 'camera') return { name: d.name, sub: `Kamera · ${KIND_INFO.camera.service} ${KIND_INFO.camera.port}`, art: <CameraArt />, tint: 'bg-violet-50 dark:bg-violet-950/50', idleIcon: 'minus', idleClass: 'bg-violet-800 text-violet-100' };
+    if (d.kind === 'camera') return { name: d.name, sub: 'Kamera', art: <CameraArt />, tint: 'bg-violet-50 dark:bg-violet-950/50', idleIcon: 'minus', idleClass: 'bg-violet-800 text-violet-100' };
     if (d.kind === 'webserver') return { name: d.name, sub: `Web server · ${KIND_INFO.webserver.service} ${KIND_INFO.webserver.port}`, art: <ServerArt />, tint: 'bg-violet-50 dark:bg-violet-950/50', idleIcon: 'minus', idleClass: 'bg-violet-800 text-violet-100' };
     if (d.kind === 'switch') return { name: d.name, sub: 'Switch (vrstva 2)', art: <SwitchArt />, tint: 'bg-teal-50 dark:bg-teal-950/50', idleIcon: 'minus', idleClass: 'bg-teal-800 text-teal-100' };
     if (d.kind === 'router') return { name: d.name, sub: 'Router (NAT, DHCP, PAT)', art: <RouterArt tone="indigo" />, tint: 'bg-indigo-50 dark:bg-indigo-950/50', idleIcon: 'minus', idleClass: 'bg-indigo-800 text-indigo-100' };

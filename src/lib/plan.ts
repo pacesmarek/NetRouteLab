@@ -112,7 +112,7 @@ export function solve(isp: IspConfig, scenario: Scenario | null, devices: Device
       cfg[ruleField('r1', d.id, 'port')] = String(port);
       cfg[ruleField('r2', d.id, 'ext')] = String(port);
       cfg[ruleField('r2', d.id, 'ip')] = ip;
-      cfg[ruleField('r2', d.id, 'port')] = String(KIND_INFO[d.kind].port);
+      cfg[ruleField('r2', d.id, 'port')] = String(d.kind === 'camera' ? port : KIND_INFO[d.kind].port);
     }
   }
   return { cfg, rules, pub };
