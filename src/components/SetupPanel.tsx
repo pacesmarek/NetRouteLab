@@ -577,27 +577,18 @@ function ApDhcp(p: PanelProps & { device: Device; owner: NodeId | null }) {
 
 function ServiceSection(p: PanelProps & { device: Device }) {
   const d = p.device;
-  const info = KIND_INFO[d.kind];
   const svc = fieldMaker(p, 'svc');
   const pub = (p.cfg[`${d.id}-pub`] ?? '').trim();
   const topId = p.free ? p.topRouter : 'r1';
   const wanIp = topId ? analyzeInterface(p.cfg[`${topId}-wan-ip`] ?? '', p.cfg[`${topId}-wan-mask`] ?? '', p.cidr) : { valid: false as const };
   const addr = `${wanIp.valid ? wanIp.ipStr : '<veřejná IP>'}:${pub || '<port>'}`;
-  const url = d.kind === 'camera' ? addr : `http://${addr}`;
-  const isCam = d.kind === 'camera';
   return (
     <Section tone="svc" title="Služba a přístup z internetu">
-      {!isCam && (
-        <div className="text-sm text-ink-2 flex items-center justify-between bg-surface/80 border border-line rounded-lg px-3 py-2">
-          <span>Služba zařízení</span>
-          <strong className="font-mono text-ink">{info.service} · port {info.port}</strong>
-        </div>
-      )}
       <div className={grid2}>
-        {svc(`${d.id}-pub`, isCam ? 'Port kamery' : 'Veřejný port (zvenku)')}
+        {svc(`${d.id}-pub`, d.kind === 'camera' ? 'Port kamery' : 'Port serveru')}
         <div>
           <div className="block text-sm font-semibold text-ink mb-1">Adresa pro klienta</div>
-          <div className="font-mono text-sm break-all bg-surface border border-line rounded-lg px-3 py-2.5 text-ink">{url}</div>
+          <div className="font-mono text-sm break-all bg-surface border border-line rounded-lg px-3 py-2.5 text-ink">{addr}</div>
         </div>
       </div>
       <button type="button" onClick={() => p.onTestInbound(d.id)} className={`w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-base font-bold transition`}>

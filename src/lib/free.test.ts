@@ -111,7 +111,7 @@ describe('volné plátno – PAT přes dva routery', () => {
     Object.assign(cfg, {
       'dev-7-ip': '10.0.0.20', 'dev-7-mask': '255.255.255.0', 'dev-7-gw': '10.0.0.1', 'dev-7-dns': '8.8.8.8', 'dev-7-pub': '8080',
       'r1-pat-n1-ext': '8080', 'r1-pat-n1-ip': '192.168.1.2', 'r1-pat-n1-port': '8080',
-      'dev-1-pat-n2-ext': '8080', 'dev-1-pat-n2-ip': '10.0.0.20', 'dev-1-pat-n2-port': '80',
+      'dev-1-pat-n2-ext': '8080', 'dev-1-pat-n2-ip': '10.0.0.20', 'dev-1-pat-n2-port': '8080',
     });
     const rules = { r1: ['n1'], 'dev-1': ['n2'] };
     const ok = simulateInboundFree(cfg, DEFAULT_ISP, t, 'dev-7', rules, false, fmt);
@@ -119,7 +119,7 @@ describe('volné plátno – PAT přes dva routery', () => {
     const noRule = simulateInboundFree(cfg, DEFAULT_ISP, t, 'dev-7', { r1: ['n1'], 'dev-1': [] }, false, fmt);
     expect(noRule.ok).toBe(false);
     expect(noRule.stopNode).toBe('dev-1');
-    cfg['dev-1-pat-n2-port'] = '8080';
+    cfg['dev-1-pat-n2-port'] = '80';
     expect(simulateInboundFree(cfg, DEFAULT_ISP, t, 'dev-7', rules, false, fmt).errorFields).toContain('dev-1-pat-n2-port');
   });
 });

@@ -49,13 +49,13 @@ export interface Device {
   apMode?: ApMode;
 }
 
-export const KIND_INFO: Record<DeviceKind, { label: string; port?: number; service?: string }> = {
+export const KIND_INFO: Record<DeviceKind, { label: string }> = {
   pc: { label: 'PC' },
   router: { label: 'Router' },
   switch: { label: 'Switch' },
   ap: { label: 'Wi-Fi AP' },
   camera: { label: 'Kamera' },
-  webserver: { label: 'Web server', port: 80, service: 'HTTP' },
+  webserver: { label: 'Web server' },
 };
 
 /** Zařízení, ke kterému se přistupuje zvenku (PAT). */
@@ -148,7 +148,7 @@ export const SCENARIOS: Scenario[] = [
   {
     title: 'Scénář #6: Server a kamera za switchem',
     summary: 'Web server a kamera zapojené přes switch do LAN 2; obě zařízení zpřístupněte z internetu.',
-    note: 'Web server (HTTP 80) i kamera jsou zapojeny přes switch. Zpřístupněte je z internetu pomocí PAT; každé na vlastním portu.',
+    note: 'Web server i kamera jsou zapojeny přes switch. Zpřístupněte je z internetu pomocí PAT; každé na vlastním portu.',
     ispGw: '147.32.10.1', ispMask: '255.255.255.128', ispDns: '1.1.1.1',
     lan1RequiredNet: '172.20.0.0', lan1RequiredPrefix: 24,
     lan2RequiredNet: '192.168.77.0', lan2RequiredPrefix: 24,

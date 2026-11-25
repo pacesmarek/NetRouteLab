@@ -4,7 +4,7 @@ import type { ValidIface } from './net';
 import { analyzeInterface, ipToLong, isIpInSubnet, isSameSubnet, parseSubnetMask, subnetsOverlap } from './net';
 import type { Config, Device, DeviceKind, FieldId, IspConfig, LogItem, NodeId, Pos, Rules, Uplinks } from './model';
 import type { ApMode } from './model';
-import { KIND_INFO, apModeOf, hasIp, ruleField } from './model';
+import { apModeOf, hasIp, ruleField } from './model';
 import type { SimResult } from './simulate';
 
 /**
@@ -438,8 +438,6 @@ export function simulateInboundFree(
   const A = (ip: string, m: string) => analyzeInterface(ip ?? '', m ?? '', allowCidr) as ValidIface; // platnost ověřila connectivity()
   const g = (k: string) => cfg[k] ?? '';
   const dn = dev.name;
-  const info = KIND_INFO[dev.kind];
-  const svc = info.service ? ` (${info.service})` : '';
   const df = (s: string): FieldId => `${deviceId}-${s}`;
   const fail = (stopNode: NodeId, title: string, text: string, errorFields: FieldId[]): SimResult => {
     logs.push({ type: 'error', title, text });
@@ -458,8 +456,8 @@ export function simulateInboundFree(
   if (pub === null) {
     return fail('isp', 'Chybí veřejný port', `U zařízení ${dn} zadejte veřejný port (1–65535), na kterém bude dostupné z internetu, např. 8081.`, [df('pub')]);
   }
-  // kamera nemá pevný port služby – poslouchá na portu zadaném v poli zařízení
-  const svcPort = dev.kind === 'camera' ? pub : (info.port ?? 80);
+  // zařízení nemá pevný port služby – poslouchá na portu zadaném v jeho poli
+  const svcPort = pub;
   pass(`1. Internet → ${nameOf(t, top)}: požadavek na ${topWan.ipStr}:${pub}`,
     `Klient z internetu se připojuje na veřejnou adresu zařízení ${nameOf(t, top)} (${topWan.ipStr}) a port ${pub}.`);
 
@@ -504,13 +502,13 @@ export function simulateInboundFree(
     }
     if (lastHop && tport !== svcPort) {
       return fail(r, `Pravidlo PAT na zařízení ${rn} míří na špatný port`,
-        `${dn} poslouchá na portu ${svcPort}${svc}, ale pravidlo přesměrovává na port ${g(ruleField(r, rule, 'port')).trim() || 'nevyplněno'}.`, [ruleField(r, rule, 'port')]);
+        `${dn} poslouchá na portu ${svcPort}, ale pravidlo přesměrovává na port ${g(ruleField(r, rule, 'port')).trim() || 'nevyplněno'}.`, [ruleField(r, rule, 'port')]);
     }
     pass(`${n++}. ${rn} (PAT): ${port} → ${expected.ipStr}:${tport}`,
       `${rn} přeložil port ${port} na ${expected.ipStr}:${tport} a předal paket dál.`);
     port = tport;
   }
-  pass(`${n}. ${dn} dostupné z internetu`, `Služba${svc} na portu ${svcPort} odpověděla. Zvenku se na ni připojíte na ${topWan.ipStr}:${pub}.`);
+  pass(`${n}. ${dn} dostupné z internetu`, `Služba na portu ${svcPort} odpověděla. Zvenku se na ni připojíte na ${topWan.ipStr}:${pub}.`);
   return { ok: true, stopNode: deviceId, logs, errorFields: [] };
 }
 

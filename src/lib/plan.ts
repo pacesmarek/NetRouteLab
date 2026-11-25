@@ -1,5 +1,5 @@
 import { fmtMask } from './format';
-import { KIND_INFO, emptyRules, isL2, isServer, ruleField, type Config, type Device, type IspConfig, type Rules, type Scenario } from './model';
+import { emptyRules, isL2, isServer, ruleField, type Config, type Device, type IspConfig, type Rules, type Scenario } from './model';
 import { analyzeInterface, ipToLong, longToIp, prefixToMaskStr } from './net';
 
 export interface Plan {
@@ -112,7 +112,7 @@ export function solve(isp: IspConfig, scenario: Scenario | null, devices: Device
       cfg[ruleField('r1', d.id, 'port')] = String(port);
       cfg[ruleField('r2', d.id, 'ext')] = String(port);
       cfg[ruleField('r2', d.id, 'ip')] = ip;
-      cfg[ruleField('r2', d.id, 'port')] = String(d.kind === 'camera' ? port : KIND_INFO[d.kind].port);
+      cfg[ruleField('r2', d.id, 'port')] = String(port);
     }
   }
   return { cfg, rules, pub };

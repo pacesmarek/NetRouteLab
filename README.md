@@ -8,7 +8,7 @@ Laboratoř výpočetních aplikací – Technická fakulta ČZU v Praze.
 - **volné plátno** (výchozí): ISP + hraniční router, další routery, switche, AP (Access Point / Klient / Bridge), PC, kamery a servery si zapojíte sami; kabely se přetahují za tečky nahoře a dole na kartách
 - úlohy (např. ISP → Router 1 → Router 2 → PC) se zapínají ručně v „Úlohách"; zařízení se dají přetahovat, nastavení vyjíždí do strany
 - DHCP na routerech i AP, PAT přes libovolný počet routerů, celá obrazovka, automatické uspořádání schématu
-- do plochy lze přidat další PC, kamery, web servery (HTTP 80), switche a Wi-Fi AP
+- do plochy lze přidat další PC, kamery, web servery, switche a Wi-Fi AP
 - seznam úloh (včetně úloh s kamerami), sdílení odkazem, export / import, ukládání stavu, krok zpět
 - traceroute s animací paketu, zoom a posun plochy, přichytávání k mřížce
 - PAT (přesměrování portů) na obou routerech + test přístupu z internetu přes dvojitý NAT

@@ -27,6 +27,7 @@ import {
 import { analyzeInterface, ipToLong, longToIp } from './lib/net';
 import { makePlan, solve } from './lib/plan';
 import { simulate, simulateInbound, PC_CLIENT, type Other, type SimResult } from './lib/simulate';
+import { scrollToCanvas, scrollToFirstError } from './lib/scroll';
 import { playSound, unlockAudio } from './lib/sound';
 
 const INFO_LOG: LogItem[] = [{
@@ -301,6 +302,7 @@ export default function App() {
   const animate = (path: NodeId[], links: LinkId[], res: SimResult, labels: { run: string; ok: string; err: string; badgeOk: string }) => {
     unlockAudio();
     resetVisual();
+    scrollToCanvas();
     const stopIdx = Math.max(0, path.indexOf(res.stopNode));
     let step = 0;
     setPacket({ node: path[0], kind: 'run', label: labels.run });
@@ -328,6 +330,8 @@ export default function App() {
         setBadge({ text: 'Nalezena chyba v konfiguraci sítě', tone: 'error' });
         showFailure(res);
         playSound('error', sound);
+        // panel zařízení se otevírá s animací – až potom odscrollovat na první chybu shora
+        window.setTimeout(() => scrollToFirstError(res.errorFields, res.stopNode), 350);
       }
     };
     timer.current = window.setTimeout(advance, 120);
@@ -385,17 +389,17 @@ export default function App() {
       const res = dhcpFailure(deviceId) ?? simulateInboundFree(effCfg, isp, topo, deviceId, rules, cidr, fmt);
       const { path, links } = pathAndLinks(topo, deviceId);
       animate([...path].reverse(), [...links].reverse(), res,
-        { run: `${KIND_INFO[dev.kind].service ?? 'TCP'} z internetu...`, ok: `✓ ${dev.name} odpovídá`, err: '✕ Spojení zahozeno', badgeOk: `${dev.name} je dostupné z internetu!` });
+        { run: `TCP z internetu...`, ok: `✓ ${dev.name} odpovídá`, err: '✕ Spojení zahozeno', badgeOk: `${dev.name} je dostupné z internetu!` });
       return;
     }
     const cut = unpluggedPath(deviceId);
     if (cut) {
       const rev = [...cut.chain].reverse();
-      animate(rev, linksOfPath(uplinks, rev) as LinkId[], cut.res, { run: `${KIND_INFO[dev.kind].service ?? 'TCP'} z internetu...`, ok: '', err: '✕ Spojení zahozeno', badgeOk: '' });
+      animate(rev, linksOfPath(uplinks, rev) as LinkId[], cut.res, { run: `TCP z internetu...`, ok: '', err: '✕ Spojení zahozeno', badgeOk: '' });
       return;
     }
     const res = dhcpFailure(deviceId) ?? simulateInbound(effCfg, isp, cidr, fmt, dev, rules, othersFor(deviceId));
-    const proto = KIND_INFO[dev.kind].service ?? 'TCP';
+    const proto = 'TCP';
     const path = inboundPath(uplinks, deviceId);
     animate(path, linksOfPath(uplinks, path) as LinkId[], res,
       { run: `${proto} z internetu...`, ok: `✓ ${dev.name} odpovídá`, err: '✕ Spojení zahozeno', badgeOk: `${dev.name} je dostupné z internetu!` });
@@ -405,6 +409,7 @@ export default function App() {
   const runTrace = () => {
     unlockAudio();
     resetVisual();
+    scrollToCanvas();
     const src: NodeId | null = free ? testSource : 'pc';
     if (!src) { say('Nejdřív přidejte PC nebo jiné koncové zařízení'); return; }
     const cut = free ? null : unpluggedPath(src);
@@ -444,6 +449,7 @@ export default function App() {
         setBadge({ text: `Traceroute selhal na hopu ${hop.ttl}`, tone: 'error' });
         showFailure(res);
         playSound('error', sound);
+        window.setTimeout(() => scrollToFirstError(res.errorFields, res.stopNode), 350);
       } else {
         const lastNode = hops[hops.length - 1].node;
         setNodeStatus((s) => ({ ...s, [lastNode]: 'ok' }));
