@@ -64,7 +64,7 @@ function usePopover() {
 
 export default function Header(p: Props) {
   return (
-    <header className="bg-surface border-b border-line relative z-40 shadow-sm">
+    <header className="bg-surface border-b border-line relative z-[60] shadow-sm">
       <div className="max-w-[1800px] mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center">
           <h1 className="sr-only">NetRoute Lab – výukový simulátor směrování, podsítí, Double NAT a PAT</h1>
